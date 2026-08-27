@@ -14,3 +14,54 @@ PyLogicViewKit aims to provide a programmable and extensible environment for wav
 
 The project is currently under development and its functionality will continue to expand.
 
+Requirements
+----------------------------------------------------------------------------------
+
+PyLogicViewKit requires the following software and Python packages:
+
+* Python 3.10 or later
+* PySide6
+* python-libfst
+
+`python-libfst` provides Python bindings for reading and processing GTKWave FST waveform files.
+
+Installation
+----------------------------------------------------------------------------------
+
+### From source:
+
+#### 1. Clone the repository:
+
+```console
+shell$ git clone --recursive https://github.com/ikwzm/PyLogicViewKit.git
+```
+
+#### 2. Setup venv
+
+```console
+shell$ python3 -m venv .venv
+```
+
+```console
+shell$ source .venv/bin/activate
+```
+
+#### 3. Install PySide6
+
+```console
+shell$ pip install PySide6
+```
+
+#### 4. Install python-libfst
+
+```console
+shell$ git submodule update --remote --recursive
+shell$ pip install ./python-libfst
+```
+
+#### 5. Install
+
+```console
+shell$ pip install -e .
+```
+
