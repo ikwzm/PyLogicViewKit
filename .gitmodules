@@ -1,0 +1,3 @@
+[submodule "python-libfst"]
+	path = python-libfst
+	url = https://github.com/ikwzm/python-libfst.git
