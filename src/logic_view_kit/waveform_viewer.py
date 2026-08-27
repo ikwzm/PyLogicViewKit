@@ -1194,9 +1194,9 @@ class FooterArea(QWidget):
             end_time   = start_time + time_range
             self.time_controller.change_time_range(start_time, end_time)
 
-class WaveformWindow(QMainWindow):
-    "アプリケーションウィンドウ"
-    " アプリケーションウィンドウは次の３つのエリアを縦に並べている"
+class WaveformViewer(QMainWindow):
+    "波形表示アプリケーションウィンドウ"
+    " 波形表示アプリケーションウィンドウは次の３つのエリアを縦に並べている"
     "   * HeaderArea   : ヘッダ部   - QLabel('Signal Name'),QLabel('Signal value'),TimeRuler"
     "   * WaveformArea : 波形表示部 - WaveformSignals, MarkerWidget, CursorWidget"
     "   * FooterArea   : フッタ部   - SignalNameScrollBar, SignalValueScrollBar, TimeRangeScrollBar"

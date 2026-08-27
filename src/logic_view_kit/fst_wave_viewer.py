@@ -7,29 +7,29 @@ import runpy
 import argparse
 
 from .view_model       import View_Model
-from .viewer           import WaveformWindow
+from .waveform_viewer  import WaveformViewer
 from PySide6.QtWidgets import QApplication
 
 APPLICATION_INFO = {
-    "Version"           : "0.5.5",
+    "Version"           : "0.6.0",
     "Author"            : "Ichiro Kawazome",
     "Author_Email"      : "ichiro_k@ca2-so-net.ne.jp",
     "License"           : "BSD 2-Clause",
     "Description"       : "FST Waveform Viewer",
 }
 
-def load_config(config_file, file_name):
+def load_view_model(view_model_file, file_name):
     namespace = {
         "View_Model"         : View_Model,
         "file_name"          : file_name ,
     }
 
-    namespace = runpy.run_path(config_file, init_globals=namespace)
+    namespace = runpy.run_path(view_model_file, init_globals=namespace)
 
     view_model = namespace["view_model"]
 
     if view_model is None:
-        raise RuntimeError(f"{config_file} does not define 'view_model'")
+        raise RuntimeError(f"{view_model_file} does not define 'view_model'")
 
     return view_model
 
@@ -44,10 +44,10 @@ def main():
 
     args = parser.parse_args()
 
-    file_name   = args.file_name
-    config_file = args.config
+    file_name       = args.file_name
+    view_model_file = args.config
 
-    view_model = load_config(config_file, file_name)
+    view_model = load_view_model(view_model_file, file_name)
 
     if args.start_time is not None:
         start_time = view_model.parse_time(args.start_time)
@@ -62,8 +62,8 @@ def main():
 
     app = QApplication(sys.argv)
 
-    window = WaveformWindow(view_model)
-    window.show()
+    waveform_viwer = WaveformViewer(view_model)
+    waveform_viwer.show()
 
     return app.exec()
 
