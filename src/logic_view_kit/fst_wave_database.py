@@ -4,7 +4,7 @@
 
 from bisect import bisect_right
 
-class Wave_DataBase:
+class FST_Wave_DataBase:
 
     class Wave_Signal:
 

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 ikwzm
 
-from   .fst_reader    import FST_Reader
-from   .wave_database import Wave_DataBase
+from   .fst_reader        import FST_Reader
+from   .fst_wave_database import FST_Wave_DataBase
 import re
 
 class View_Model:
@@ -630,7 +630,7 @@ class View_Model:
     def __init__(self, file_name, option=None):
         self.file_name      = file_name
         self.reader         = FST_Reader(file_name)
-        self.database       = Wave_DataBase(self.reader)
+        self.database       = FST_Wave_DataBase(self.reader)
         self.option         = self.merge_option(option, self.DEFAULT_OPTION)
         self.child_option   = self.get_inherited_option(self.option)
         self.reader.read_tree()
