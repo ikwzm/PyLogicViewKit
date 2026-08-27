@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pylogicviewkit"
+version = "0.6.0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
