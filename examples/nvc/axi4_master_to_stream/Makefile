@@ -1,0 +1,78 @@
+PROJECT_NAME  = axi4_master_to_stream
+SRC_TEST_PATH = PipeWorkTest/src/test/vhdl/$(PROJECT_NAME)
+SCENARIO_PATH = PipeWorkTest/src/test/scenarios/$(PROJECT_NAME)
+
+NVC           = nvc
+NVCFLAGS      = -L ./ -M 128M
+
+TEST_BENCH    = axi4_m2s_tb_32_32_256_sync          \
+                axi4_m2s_tb_32_64_256_sync          \
+                axi4_m2s_tb_32_64_256_sync_1        \
+                axi4_m2s_tb_32_64_256_sync_2        \
+                axi4_m2s_tb_32_64_256_sync_3        \
+                axi4_m2s_tb_32_64_256_sync_4        \
+                axi4_m2s_tb_32_64_256_sync_5        \
+                axi4_m2s_tb_64_32_256_sync          \
+                axi4_m2s_tb_64_64_256_sync          \
+                axi4_m2s_tb_32_32_256_100mhz_250mhz \
+                axi4_m2s_tb_32_32_256_250mhz_100mhz \
+                $(END_LIST)
+
+SCENARIOS     = axi4_master_to_stream_test_bench_32_32_256.snr \
+                axi4_master_to_stream_test_bench_32_64_256.snr \
+                axi4_master_to_stream_test_bench_64_32_256.snr \
+                axi4_master_to_stream_test_bench_64_64_256.snr \
+                $(END_LIST)
+
+all: axi4_m2s_tb_32_32_256_sync
+#all: $(TEST_BENCH)
+
+clean:
+	rm -rf *.o WORK DUMMY_PLUG PIPEWORK analyze_libs.sh $(SCENARIOS)
+
+analyze_libs.sh: libs.yml
+	PipeWorkTest/PipeWork/tools/vhdl-archiver.rb -v --config libs.yml > analyze_libs.sh
+
+define NVC_ANALIZE_FILE
+$(addprefix WORK/WORK.,$(shell echo $(1) | tr a-z A-Z))
+endef
+
+define NVC_EXECUTE_FILE
+$(addsuffix .elab.so,$(addprefix WORK/_WORK.,$(shell echo $(1) | tr a-z A-Z)))
+endef
+
+define SCENARIO_FILE
+$(addsuffix .snr,$(subst axi4_m2s_tb,axi4_master_to_stream_test_bench,$(subst _sync,,$(subst _sync_1,,$(subst _sync_2,,$(subst _sync_3,,$(subst _sync_4,,$(subst _sync_5,,$(subst _100mhz_250mhz,,$(subst _250mhz_100mhz,,$(1)))))))))))
+endef
+
+define NVC_RUN
+$(1): $(call NVC_EXECUTE_FILE,$(1)) $(2)
+	$(NVC) $(NVCFLAGS) --work=WORK -r --wave=$(addsuffix .fst, $(1)) --format=fst $(1)
+endef
+
+define NVC_ELAB
+$(call NVC_EXECUTE_FILE,$(1)): $(call NVC_ANALIZE_FILE,$(1))
+	$(NVC) $(NVCFLAGS) --work=WORK -e $(1)
+endef
+
+$(call NVC_ANALIZE_FILE, $(TEST_BENCH)) : analyze_libs.sh
+	sh analyze_libs.sh
+
+$(foreach TB, $(TEST_BENCH), $(eval $(call NVC_ELAB, $(TB))))
+$(foreach TB, $(TEST_BENCH), $(eval $(call NVC_RUN , $(TB), $(call SCENARIO_FILE, $(TB)))))
+
+scenarios: $(SCENARIOS)
+
+axi4_master_to_stream_test_bench_32_32_256.snr : make_scenario.rb
+	ruby make_scenario.rb -v --i_width 32 --o_width 32 --max_size 256 --test_item 4 --output $@
+
+axi4_master_to_stream_test_bench_32_64_256.snr : make_scenario.rb
+	ruby make_scenario.rb -v --i_width 32 --o_width 64 --max_size 256 --test_item 4 --output $@
+
+axi4_master_to_stream_test_bench_64_32_256.snr : make_scenario.rb
+	ruby make_scenario.rb -v --i_width 64 --o_width 32 --max_size 256 --test_item 4 --output $@
+
+axi4_master_to_stream_test_bench_64_64_256.snr : make_scenario.rb
+	ruby make_scenario.rb -v --i_width 64 --o_width 64 --max_size 256 --test_item 4 --output $@
+
+
