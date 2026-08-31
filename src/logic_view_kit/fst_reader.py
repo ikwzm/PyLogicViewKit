@@ -180,7 +180,49 @@ class FST_Reader:
                 return self.enum_name(self.AttrPackType, subtype)
         except ValueError:
             return f"UNKNOWN({subtype})"
-        
+
+    def get_value_type(self, attributes=None):
+        if attributes is None:
+            return None
+        value_type = None
+        for attribute in attributes:
+            attr_type = attribute.get("type")
+            sub_type  = attribute.get("subtype")
+            if attr_type == "MISC" and sub_type == "SUPVAR":
+                data_type = attribute.get("data_type")
+                if data_type in ("SDT_VHDL_BOOLEAN"          ,
+                                 "SDT_VHDL_BIT"              ,
+                                 "SDT_VHDL_BIT_VECTOR"       ,
+                                 "SDT_VHDL_STD_ULOGIC"       ,
+                                 "SDT_VHDL_STD_ULOGIC_VECTOR",
+                                 "SDT_VHDL_STD_LOGIC"        ,
+                                 "SDT_VHDL_STD_LOGIC_VECTOR" ,
+                                 "SDT_VHDL_UNSIGNED"         ,
+                                 "SDT_VHDL_SIGNED"           ,
+                                 "SDT_VHDL_INTEGER"          ,
+                                 "SDT_VHDL_REAL"             ,
+                                 "SDT_VHDL_NATURAL"          ,
+                                 "SDT_VHDL_POSITIVE"         ,
+                                 "SDT_VHDL_CHARACTER"        ,
+                                 "SDT_VHDL_STRING"           ):
+                    value_type = data_type[4:]
+                else:
+                    value_type = None
+                break
+            if attr_type == "ENUM":
+                if sub_type in ("SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
+                                "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
+                                "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
+                                "SV_INT"     , "SV_UNSIGNED_INT"     ,
+                                "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
+                                "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
+                                "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
+                    value_type = sub_type
+                else:
+                    value_type = None
+                break
+        return value_type
+
     def read_tree(self):
         self.tree.setdefault("contents", []).clear()
         attributes = []
@@ -209,8 +251,10 @@ class FST_Reader:
                     "width"    : item.length,
                     "handle"   : item.handle,
                     "is_alias" : item.is_alias,
+                    "value_type"      : None,
                 }
                 if attributes:
+                    node["value_type"] = self.get_value_type(attributes)
                     node.setdefault("attributes", []).extend(attributes)
                     attributes.clear()
                 stack[-1]["contents"].append(node)

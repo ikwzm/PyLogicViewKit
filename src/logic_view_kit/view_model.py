@@ -61,43 +61,7 @@ class View_Model:
             self.closed       = False
             self.display_name = self.option["display_name"] or self.name
             self.is_logic     = self.width == 1 and not self.name.endswith("]")
-            self.value_type   = None
-            for attribute in node.get("attributes"):
-                attr_type = attribute.get("type")
-                sub_type  = attribute.get("subtype")
-                if attr_type == "MISC" and sub_type == "SUPVAR":
-                    data_type = attribute.get("data_type")
-                    if data_type in ("SDT_VHDL_BOOLEAN"          ,
-                                     "SDT_VHDL_BIT"              ,
-                                     "SDT_VHDL_BIT_VECTOR"       ,
-                                     "SDT_VHDL_STD_ULOGIC"       ,
-                                     "SDT_VHDL_STD_ULOGIC_VECTOR",
-                                     "SDT_VHDL_STD_LOGIC"        ,
-                                     "SDT_VHDL_STD_LOGIC_VECTOR" ,
-                                     "SDT_VHDL_UNSIGNED"         ,
-                                     "SDT_VHDL_SIGNED"           ,
-                                     "SDT_VHDL_INTEGER"          ,
-                                     "SDT_VHDL_REAL"             ,
-                                     "SDT_VHDL_NATURAL"          ,
-                                     "SDT_VHDL_POSITIVE"         ,
-                                     "SDT_VHDL_CHARACTER"        ,
-                                     "SDT_VHDL_STRING"           ):
-                        self.value_type = data_type[4:]
-                    else:
-                        self.value_type = None
-                    break
-                if attr_type == "ENUM":
-                    if sub_type in ("SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
-                                    "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
-                                    "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
-                                    "SV_INT"     , "SV_UNSIGNED_INT"     ,
-                                    "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
-                                    "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
-                                    "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
-                        self.value_type = sub_type
-                    else:
-                        self.value_type = None
-                    break
+            self.value_type   = node["value_type"]
             self.value_formatter = self.model.get_value_formatter(self.value_type,
                                                                   self.width,
                                                                   self.is_logic,
