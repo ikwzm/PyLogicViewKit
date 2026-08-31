@@ -6,15 +6,22 @@ import sys
 import runpy
 import argparse
 
-from .view_model       import View_Model
-from .waveform_viewer  import WaveformViewer
-from PySide6.QtWidgets import QApplication
+from .fst_reader        import FST_Reader
+from .fst_wave_database import FST_Wave_DataBase
+from .view_model        import View_Model
+from .waveform_viewer   import WaveformViewer
+from PySide6.QtWidgets  import QApplication
 
+class FST_View_Model(View_Model):
+    def __init__(self, file_name, option=None):
+        fst_reader = FST_Reader(file_name)
+        database   = FST_Wave_DataBase(fst_reader)
+        super().__init__(database, option)
 
 class FST_Wave_Viewer:
 
     APPLICATION_INFO = {
-        "Version"           : "0.6.0",
+        "Version"           : "0.6.3",
         "Author"            : "Ichiro Kawazome",
         "Author_Email"      : "ichiro_k@ca2-so-net.ne.jp",
         "License"           : "BSD 2-Clause",
@@ -31,7 +38,7 @@ class FST_Wave_Viewer:
     
     def load_view_model(self, view_model_file, file_name):
         namespace = {
-            "View_Model"         : View_Model,
+            "View_Model"         : FST_View_Model,
             "file_name"          : file_name ,
         }
         namespace  = runpy.run_path(view_model_file, init_globals=namespace)

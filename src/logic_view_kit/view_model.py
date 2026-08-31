@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 ikwzm
 
-from   .fst_reader        import FST_Reader
-from   .fst_wave_database import FST_Wave_DataBase
+from   .value_formatter   import Value_Formatter
 import re
 
 class View_Model:
@@ -61,47 +60,11 @@ class View_Model:
             self.closed       = False
             self.display_name = self.option["display_name"] or self.name
             self.is_logic     = self.width == 1 and not self.name.endswith("]")
-            self.value_type   = None
-            for attribute in node.get("attributes"):
-                attr_type = attribute.get("type")
-                sub_type  = attribute.get("subtype")
-                if attr_type == "MISC" and sub_type == "SUPVAR":
-                    data_type = attribute.get("data_type")
-                    if data_type in ("SDT_VHDL_BOOLEAN"          ,
-                                     "SDT_VHDL_BIT"              ,
-                                     "SDT_VHDL_BIT_VECTOR"       ,
-                                     "SDT_VHDL_STD_ULOGIC"       ,
-                                     "SDT_VHDL_STD_ULOGIC_VECTOR",
-                                     "SDT_VHDL_STD_LOGIC"        ,
-                                     "SDT_VHDL_STD_LOGIC_VECTOR" ,
-                                     "SDT_VHDL_UNSIGNED"         ,
-                                     "SDT_VHDL_SIGNED"           ,
-                                     "SDT_VHDL_INTEGER"          ,
-                                     "SDT_VHDL_REAL"             ,
-                                     "SDT_VHDL_NATURAL"          ,
-                                     "SDT_VHDL_POSITIVE"         ,
-                                     "SDT_VHDL_CHARACTER"        ,
-                                     "SDT_VHDL_STRING"           ):
-                        self.value_type = data_type[4:]
-                    else:
-                        self.value_type = None
-                    break
-                if attr_type == "ENUM":
-                    if sub_type in ("SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
-                                    "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
-                                    "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
-                                    "SV_INT"     , "SV_UNSIGNED_INT"     ,
-                                    "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
-                                    "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
-                                    "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
-                        self.value_type = sub_type
-                    else:
-                        self.value_type = None
-                    break
-            self.value_formatter = self.model.get_value_formatter(self.value_type,
-                                                                  self.width,
-                                                                  self.is_logic,
-                                                                  self.option["value_format"])
+            self.value_type   = node["value_type"]
+            self.value_formatter = Value_Formatter.get(self.value_type,
+                                                       self.width,
+                                                       self.is_logic,
+                                                       self.option["value_format"])
         def close(self):
             if self.closed is True:
                 return
@@ -257,8 +220,8 @@ class View_Model:
             self.item_list.clear()
 
         def _add_signals(self, pattern, tree, option):
-            var_list = self.model.reader.find_var_list(pattern, tree=tree, struct_as_var=True)
-            for path_name_list, node in var_list:
+            signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
+            for path_name_list, node in signal_list:
                 path = "::".join(path_name_list)
                 if "handle" in node:
                     signal = self.model.View_Signal(self.view_list, path, node, self, option)
@@ -273,20 +236,20 @@ class View_Model:
         def add_signals(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            return self._add_signals(pattern, tree=self.model.reader.tree, option=option)
+            return self._add_signals(pattern, tree=self.model.database.get_root_tree(), option=option)
 
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
             if self.view_list.clock is not None:
                 raise RuntimeError("View_List already contains a clock")
-            var_list = self.model.reader.find_var_list(pattern)
-            if len(var_list) == 0:
+            signal_list = self.model.database.find_signals(pattern)
+            if len(signal_list) == 0:
                 raise RuntimeError(f'No clock matched the specified pattern: "{pattern}"')
-            if len(var_list) >= 2:
+            if len(signal_list) >= 2:
                 raise RuntimeError(f'Multiple signals matched the specified clock pattern: "{pattern}"')
-            path = "::".join(var_list[0][0])
-            node = var_list[0][1]
+            path = "::".join(signal_list[0][0])
+            node = signal_list[0][1]
             if "handle" not in node:
                 raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
             signal = self.model.View_Signal(self.view_list, path, node, self, option)
@@ -476,125 +439,6 @@ class View_Model:
             color = self.get_option("color", {})
             return color.get(key,{}).get(prop, default_value)
 
-    class Value_Vector_Formatter:
-        VALUE_FORMAT_RE = re.compile(
-            r"^(?P<alternate>\#?)"
-            r"(?P<zero>0?)"
-            r"(?P<width>\d*)"
-            r"(?P<type>[bBoOxXd])"
-            r"(?P<suffix>.*)$"
-        )
-        def __init__(self, value_type, width=1, value_format=None):
-            self.value_type = value_type
-            if value_format is not None:
-                self.value_format = value_format
-            elif width >= 8 and width % 4 == 0:
-                self.value_format = f"#0{width // 4 + 2}x"
-            else:
-                self.value_format = f"0{width}b"
-            match = self.VALUE_FORMAT_RE.fullmatch(self.value_format)
-            if match is None:
-                raise ValueError(f"Invalid format: {self.value_format!r}")
-            format_alternate   = bool(match.group("alternate"))
-            self.format_zero   = bool(match.group("zero"))
-            self.format_width  = int(match.group("width")) if match.group("width") else None
-            self.format_type   = match.group("type")
-            self.format_suffix = match.group("suffix")
-            if not format_alternate:
-                self.value_format_prefix = ""
-            elif self.format_type in ("b", "B"):
-                self.value_format_prefix = "0b"
-            elif self.format_type in ("o", "O"):
-                self.value_format_prefix = "0o"
-            elif self.format_type == "x":
-                self.value_format_prefix = "0x"
-            elif self.format_type == "X":
-                self.value_format_prefix = "0X"
-            else:
-                self.value_format_prefix = ""
-
-        def format_value(self, value):
-            if all(c in "01" for c in value):
-                return format(int(value,2), self.value_format)
-
-            def _format_4state_bits(value, bit_width):
-                result  = []
-                padding = (-len(value)) % bit_width
-                value   = "0" * padding + value
-                for pos in range(0, len(value), bit_width):
-                    bits = value[pos:pos + bit_width]
-                    if all(c in "01" for c in bits):
-                        number = int(bits, 2)
-                        result.append(format(number, self.format_type))
-                    elif any(c in "xXuU" for c in bits):
-                        result.append("U")
-                    elif any(c in "zZ"   for c in bits):
-                        result.append("Z")
-                    else:
-                        result.append("?")
-                return "".join(result)
-            
-            if   self.format_type in ("x", "X"):
-                result = _format_4state_bits(value, 4)
-            elif self.format_type == "o":
-                result = _format_4state_bits(value, 3)
-            else:
-                result = value
-
-            if self.format_width is not None:
-                content_width = self.format_width - len(self.value_format_prefix)
-                if len(result) < content_width:
-                    padding = content_width - len(result)
-                    if self.format_zero:
-                        result = "0" * padding + result
-                    else:
-                        result = " " * padding + result
-            return self.value_format_prefix + result + self.format_suffix
-
-    class Value_Logic_Formatter:
-        def __init__(self, value_type, width=1, value_format=None):
-            self.value_type   = value_type
-            self.width        = width
-            if value_format is None:
-                self.value_format = ""
-            else:
-                self.value_format = value_format
-        def format_value(self, value):
-            return format(value, self.value_format)
-        
-    class Value_Other_Formatter:
-        def __init__(self, value_type, width, value_format=None):
-            self.value_type   = value_type
-            self.width        = width
-            if value_format is None:
-                self.value_format = ""
-            else:
-                self.value_format = value_format
-        def format_value(self, value):
-            return format(value, self.value_format)
-
-    def get_value_formatter(self, value_type, width, is_logic=False, value_format=None):
-        if is_logic is True:
-            return self.Value_Logic_Formatter(value_type, width, value_format)
-        if value_type in ("VHDL_BIT"              ,
-                          "VHDL_STD_ULOGIC"       ,
-                          "VHDL_STD_LOGIC"        ):
-            return self.Value_Logic_Formatter(value_type, width, value_format)
-        if value_type in ("VHDL_BIT_VECTOR"       ,
-                          "VHDL_STD_ULOGIC_VECTOR",
-                          "VHDL_STD_LOGIC_VECTOR" ,
-                          "VHDL_UNSIGNED"         ,
-                          "VHDL_SIGNED"           ,
-                          "SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
-                          "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
-                          "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
-                          "SV_INT"     , "SV_UNSIGNED_INT"     ,
-                          "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
-                          "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
-                          "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
-            return self.Value_Vector_Formatter(value_type, width, value_format)
-        return self.Value_Other_Formatter(value_type, width, value_format)
-        
     DEFAULT_OPTION = {
         "header_height"      : 24    ,
         "footer_height"      : 24    ,
@@ -627,20 +471,18 @@ class View_Model:
     }
     INHERITABLE_OPTION = {"color": {"name": True, "value": True, "wave": True}, "shape": True}
     
-    def __init__(self, file_name, option=None):
-        self.file_name      = file_name
-        self.reader         = FST_Reader(file_name)
-        self.database       = FST_Wave_DataBase(self.reader)
+    def __init__(self, database, option=None):
+        self.database       = database
         self.option         = self.merge_option(option, self.DEFAULT_OPTION)
         self.child_option   = self.get_inherited_option(self.option)
-        self.reader.read_tree()
+        self.database.build_tree()
         self.start_time     = self.parse_time(self.option["start_time"  ])
         self.end_time       = self.parse_time(self.option["end_time"    ])
         self.time_quantum   = self.parse_time(self.option["time_quantum"])
-        if self.start_time is None or self.start_time < self.reader.start_time:
-            self.start_time = self.reader.start_time
-        if self.end_time   is None or self.end_time   > self.reader.end_time  :
-            self.end_time   = self.reader.end_time
+        if self.start_time is None or self.start_time < self.database.total_start_time:
+            self.start_time = self.database.total_start_time
+        if self.end_time   is None or self.end_time   > self.database.total_end_time  :
+            self.end_time   = self.database.total_end_time
         self.current_time   = self.start_time
         self.view_list_list = []
         self.curr_view_list = self.add_view_list("top")
@@ -648,13 +490,13 @@ class View_Model:
 
     def set_start_time(self, start_time):
         self.start_time = start_time
-        if self.start_time is None or self.start_time < self.reader.start_time:
-            self.start_time = self.reader.start_time
+        if self.start_time is None or self.start_time < self.database.total_start_time:
+            self.start_time = self.database.total_start_time
         
     def set_end_time(self, end_time):
         self.end_time = end_time
-        if self.end_time   is None or self.end_time   > self.reader.end_time  :
-            self.end_time   = self.reader.end_time
+        if self.end_time   is None or self.end_time   > self.database.total_end_time  :
+            self.end_time   = self.database.total_end_time
         
     def parse_time(self, text):
         if text is None:
@@ -665,11 +507,11 @@ class View_Model:
         if m:
             value = float(m.group(1))
             unit  = m.group(2)
-            return self.reader.parse_timestamp(value, unit)
+            return self.database.parse_timestamp(value, unit)
         # 数値のみ
         m = re.fullmatch(r"[0-9]+", text)
         if m:
-            return self.reader.parse_timestamp(int(text))
+            return self.database.parse_timestamp(int(text))
 
         raise ValueError(f"Invalid time format: {text}")
 
@@ -748,7 +590,7 @@ class View_Model:
     def close(self):
         for view_list in self.view_list_list:
             view_list.close()
-        self.reader.close()
+        self.database.close()
         self.view_list_list.clear()
         self.curr_view_list = None
         self.closed         = True
@@ -766,13 +608,13 @@ class View_Model:
         self.database.load_wave_signals(start_time, end_time)
 
     def format_time_scale(self, time_scale):
-        return self.reader.format_time_scale(time_scale)
+        return self.database.format_time_scale(time_scale)
 
     def format_timestamp(self, timestamp, time_scale=None):
-        return self.reader.format_timestamp(timestamp, time_scale)
+        return self.database.format_timestamp(timestamp, time_scale)
 
     def parse_timestamp(self, value, unit=None, time_scale=None):
-        return self.reader.parse_timestamp(value, unit, time_scale)
+        return self.database.parse_timestamp(value, unit, time_scale)
 
     def add_group(self, name, option=None):
         if self.closed is True:
