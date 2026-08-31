@@ -4,6 +4,7 @@
 
 from   .fst_reader        import FST_Reader
 from   .fst_wave_database import FST_Wave_DataBase
+from   .value_formatter   import Value_Formatter
 import re
 
 class View_Model:
@@ -62,10 +63,10 @@ class View_Model:
             self.display_name = self.option["display_name"] or self.name
             self.is_logic     = self.width == 1 and not self.name.endswith("]")
             self.value_type   = node["value_type"]
-            self.value_formatter = self.model.get_value_formatter(self.value_type,
-                                                                  self.width,
-                                                                  self.is_logic,
-                                                                  self.option["value_format"])
+            self.value_formatter = Value_Formatter.get(self.value_type,
+                                                       self.width,
+                                                       self.is_logic,
+                                                       self.option["value_format"])
         def close(self):
             if self.closed is True:
                 return
@@ -440,125 +441,6 @@ class View_Model:
             color = self.get_option("color", {})
             return color.get(key,{}).get(prop, default_value)
 
-    class Value_Vector_Formatter:
-        VALUE_FORMAT_RE = re.compile(
-            r"^(?P<alternate>\#?)"
-            r"(?P<zero>0?)"
-            r"(?P<width>\d*)"
-            r"(?P<type>[bBoOxXd])"
-            r"(?P<suffix>.*)$"
-        )
-        def __init__(self, value_type, width=1, value_format=None):
-            self.value_type = value_type
-            if value_format is not None:
-                self.value_format = value_format
-            elif width >= 8 and width % 4 == 0:
-                self.value_format = f"#0{width // 4 + 2}x"
-            else:
-                self.value_format = f"0{width}b"
-            match = self.VALUE_FORMAT_RE.fullmatch(self.value_format)
-            if match is None:
-                raise ValueError(f"Invalid format: {self.value_format!r}")
-            format_alternate   = bool(match.group("alternate"))
-            self.format_zero   = bool(match.group("zero"))
-            self.format_width  = int(match.group("width")) if match.group("width") else None
-            self.format_type   = match.group("type")
-            self.format_suffix = match.group("suffix")
-            if not format_alternate:
-                self.value_format_prefix = ""
-            elif self.format_type in ("b", "B"):
-                self.value_format_prefix = "0b"
-            elif self.format_type in ("o", "O"):
-                self.value_format_prefix = "0o"
-            elif self.format_type == "x":
-                self.value_format_prefix = "0x"
-            elif self.format_type == "X":
-                self.value_format_prefix = "0X"
-            else:
-                self.value_format_prefix = ""
-
-        def format_value(self, value):
-            if all(c in "01" for c in value):
-                return format(int(value,2), self.value_format)
-
-            def _format_4state_bits(value, bit_width):
-                result  = []
-                padding = (-len(value)) % bit_width
-                value   = "0" * padding + value
-                for pos in range(0, len(value), bit_width):
-                    bits = value[pos:pos + bit_width]
-                    if all(c in "01" for c in bits):
-                        number = int(bits, 2)
-                        result.append(format(number, self.format_type))
-                    elif any(c in "xXuU" for c in bits):
-                        result.append("U")
-                    elif any(c in "zZ"   for c in bits):
-                        result.append("Z")
-                    else:
-                        result.append("?")
-                return "".join(result)
-            
-            if   self.format_type in ("x", "X"):
-                result = _format_4state_bits(value, 4)
-            elif self.format_type == "o":
-                result = _format_4state_bits(value, 3)
-            else:
-                result = value
-
-            if self.format_width is not None:
-                content_width = self.format_width - len(self.value_format_prefix)
-                if len(result) < content_width:
-                    padding = content_width - len(result)
-                    if self.format_zero:
-                        result = "0" * padding + result
-                    else:
-                        result = " " * padding + result
-            return self.value_format_prefix + result + self.format_suffix
-
-    class Value_Logic_Formatter:
-        def __init__(self, value_type, width=1, value_format=None):
-            self.value_type   = value_type
-            self.width        = width
-            if value_format is None:
-                self.value_format = ""
-            else:
-                self.value_format = value_format
-        def format_value(self, value):
-            return format(value, self.value_format)
-        
-    class Value_Other_Formatter:
-        def __init__(self, value_type, width, value_format=None):
-            self.value_type   = value_type
-            self.width        = width
-            if value_format is None:
-                self.value_format = ""
-            else:
-                self.value_format = value_format
-        def format_value(self, value):
-            return format(value, self.value_format)
-
-    def get_value_formatter(self, value_type, width, is_logic=False, value_format=None):
-        if is_logic is True:
-            return self.Value_Logic_Formatter(value_type, width, value_format)
-        if value_type in ("VHDL_BIT"              ,
-                          "VHDL_STD_ULOGIC"       ,
-                          "VHDL_STD_LOGIC"        ):
-            return self.Value_Logic_Formatter(value_type, width, value_format)
-        if value_type in ("VHDL_BIT_VECTOR"       ,
-                          "VHDL_STD_ULOGIC_VECTOR",
-                          "VHDL_STD_LOGIC_VECTOR" ,
-                          "VHDL_UNSIGNED"         ,
-                          "VHDL_SIGNED"           ,
-                          "SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
-                          "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
-                          "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
-                          "SV_INT"     , "SV_UNSIGNED_INT"     ,
-                          "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
-                          "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
-                          "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
-            return self.Value_Vector_Formatter(value_type, width, value_format)
-        return self.Value_Other_Formatter(value_type, width, value_format)
-        
     DEFAULT_OPTION = {
         "header_height"      : 24    ,
         "footer_height"      : 24    ,

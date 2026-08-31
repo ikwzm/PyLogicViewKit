@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 class FST_Wave_Viewer:
 
     APPLICATION_INFO = {
-        "Version"           : "0.6.1",
+        "Version"           : "0.6.2",
         "Author"            : "Ichiro Kawazome",
         "Author_Email"      : "ichiro_k@ca2-so-net.ne.jp",
         "License"           : "BSD 2-Clause",
