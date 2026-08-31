@@ -67,8 +67,13 @@ class FST_Wave_DataBase:
             )
 
     def __init__(self, fst_reader):
-        self.fst_reader   = fst_reader
-        self.wave_signals = {}
+        self.fst_reader       = fst_reader
+        self.wave_signals     = {}
+        self.total_start_time = self.fst_reader.start_time
+        self.total_end_time   = self.fst_reader.end_time
+
+    def close(self):
+        self.fst_reader.close()
 
     def register_handle(self, handle):
         wave_signal = self.wave_signals.get(handle)
@@ -128,3 +133,22 @@ class FST_Wave_DataBase:
             
         return wave_signal.get(start_time, end_time)
 
+    def find_signals(self, pattern, tree=None, struct_as_var=False):
+        return self.fst_reader.find_var_list(pattern, tree, struct_as_var)
+
+    def build_tree(self):
+        self.fst_reader.read_tree()
+        
+    def get_root_tree(self):
+        return self.fst_reader.tree
+
+    def parse_timestamp(self, value, unit=None, time_scale=None):
+        return self.fst_reader.parse_timestamp(value, unit, time_scale)
+
+    def format_time_scale(self, time_scale):
+        return self.fst_reader.format_time_scale(time_scale)
+
+    def format_timestamp(self, timestamp, time_scale=None):
+        return self.fst_reader.format_timestamp(timestamp, time_scale)
+
+    

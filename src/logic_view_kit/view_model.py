@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 ikwzm
 
-from   .fst_reader        import FST_Reader
-from   .fst_wave_database import FST_Wave_DataBase
 from   .value_formatter   import Value_Formatter
 import re
 
@@ -222,8 +220,8 @@ class View_Model:
             self.item_list.clear()
 
         def _add_signals(self, pattern, tree, option):
-            var_list = self.model.reader.find_var_list(pattern, tree=tree, struct_as_var=True)
-            for path_name_list, node in var_list:
+            signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
+            for path_name_list, node in signal_list:
                 path = "::".join(path_name_list)
                 if "handle" in node:
                     signal = self.model.View_Signal(self.view_list, path, node, self, option)
@@ -238,20 +236,20 @@ class View_Model:
         def add_signals(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            return self._add_signals(pattern, tree=self.model.reader.tree, option=option)
+            return self._add_signals(pattern, tree=self.model.database.get_root_tree(), option=option)
 
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
             if self.view_list.clock is not None:
                 raise RuntimeError("View_List already contains a clock")
-            var_list = self.model.reader.find_var_list(pattern)
-            if len(var_list) == 0:
+            signal_list = self.model.database.find_signals(pattern)
+            if len(signal_list) == 0:
                 raise RuntimeError(f'No clock matched the specified pattern: "{pattern}"')
-            if len(var_list) >= 2:
+            if len(signal_list) >= 2:
                 raise RuntimeError(f'Multiple signals matched the specified clock pattern: "{pattern}"')
-            path = "::".join(var_list[0][0])
-            node = var_list[0][1]
+            path = "::".join(signal_list[0][0])
+            node = signal_list[0][1]
             if "handle" not in node:
                 raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
             signal = self.model.View_Signal(self.view_list, path, node, self, option)
@@ -473,20 +471,18 @@ class View_Model:
     }
     INHERITABLE_OPTION = {"color": {"name": True, "value": True, "wave": True}, "shape": True}
     
-    def __init__(self, file_name, option=None):
-        self.file_name      = file_name
-        self.reader         = FST_Reader(file_name)
-        self.database       = FST_Wave_DataBase(self.reader)
+    def __init__(self, database, option=None):
+        self.database       = database
         self.option         = self.merge_option(option, self.DEFAULT_OPTION)
         self.child_option   = self.get_inherited_option(self.option)
-        self.reader.read_tree()
+        self.database.build_tree()
         self.start_time     = self.parse_time(self.option["start_time"  ])
         self.end_time       = self.parse_time(self.option["end_time"    ])
         self.time_quantum   = self.parse_time(self.option["time_quantum"])
-        if self.start_time is None or self.start_time < self.reader.start_time:
-            self.start_time = self.reader.start_time
-        if self.end_time   is None or self.end_time   > self.reader.end_time  :
-            self.end_time   = self.reader.end_time
+        if self.start_time is None or self.start_time < self.database.total_start_time:
+            self.start_time = self.database.total_start_time
+        if self.end_time   is None or self.end_time   > self.database.total_end_time  :
+            self.end_time   = self.database.total_end_time
         self.current_time   = self.start_time
         self.view_list_list = []
         self.curr_view_list = self.add_view_list("top")
@@ -494,13 +490,13 @@ class View_Model:
 
     def set_start_time(self, start_time):
         self.start_time = start_time
-        if self.start_time is None or self.start_time < self.reader.start_time:
-            self.start_time = self.reader.start_time
+        if self.start_time is None or self.start_time < self.database.total_start_time:
+            self.start_time = self.database.total_start_time
         
     def set_end_time(self, end_time):
         self.end_time = end_time
-        if self.end_time   is None or self.end_time   > self.reader.end_time  :
-            self.end_time   = self.reader.end_time
+        if self.end_time   is None or self.end_time   > self.database.total_end_time  :
+            self.end_time   = self.database.total_end_time
         
     def parse_time(self, text):
         if text is None:
@@ -511,11 +507,11 @@ class View_Model:
         if m:
             value = float(m.group(1))
             unit  = m.group(2)
-            return self.reader.parse_timestamp(value, unit)
+            return self.database.parse_timestamp(value, unit)
         # 数値のみ
         m = re.fullmatch(r"[0-9]+", text)
         if m:
-            return self.reader.parse_timestamp(int(text))
+            return self.database.parse_timestamp(int(text))
 
         raise ValueError(f"Invalid time format: {text}")
 
@@ -594,7 +590,7 @@ class View_Model:
     def close(self):
         for view_list in self.view_list_list:
             view_list.close()
-        self.reader.close()
+        self.database.close()
         self.view_list_list.clear()
         self.curr_view_list = None
         self.closed         = True
@@ -612,13 +608,13 @@ class View_Model:
         self.database.load_wave_signals(start_time, end_time)
 
     def format_time_scale(self, time_scale):
-        return self.reader.format_time_scale(time_scale)
+        return self.database.format_time_scale(time_scale)
 
     def format_timestamp(self, timestamp, time_scale=None):
-        return self.reader.format_timestamp(timestamp, time_scale)
+        return self.database.format_timestamp(timestamp, time_scale)
 
     def parse_timestamp(self, value, unit=None, time_scale=None):
-        return self.reader.parse_timestamp(value, unit, time_scale)
+        return self.database.parse_timestamp(value, unit, time_scale)
 
     def add_group(self, name, option=None):
         if self.closed is True:
