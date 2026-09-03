@@ -107,21 +107,8 @@ class Value_Formatter:
     def get(cls, value_type, width, is_logic=False, value_format=None):
         if is_logic is True:
             return cls.Logic(value_type, width, value_format)
-        if value_type in ("VHDL_BIT"              ,
-                          "VHDL_STD_ULOGIC"       ,
-                          "VHDL_STD_LOGIC"        ):
+        if value_type.is_logic:
             return cls.Logic(value_type, width, value_format)
-        if value_type in ("VHDL_BIT_VECTOR"       ,
-                          "VHDL_STD_ULOGIC_VECTOR",
-                          "VHDL_STD_LOGIC_VECTOR" ,
-                          "VHDL_UNSIGNED"         ,
-                          "VHDL_SIGNED"           ,
-                          "SV_INTEGER" , "SV_UNSIGNED_INTEGER" ,
-                          "SV_BIT"     , "SV_UNSIGNED_BIT"     ,
-                          "SV_LOGIC"   , "SV_UNSIGNED_LOGIC"   ,
-                          "SV_INT"     , "SV_UNSIGNED_INT"     ,
-                          "SV_SHORTINT", "SV_UNSIGNED_SHORTINT",
-                          "SV_LONGINT" , "SV_UNSIGNED_LONGINT" ,
-                          "SV_BYTE"    , "SV_UNSIGNED_BYTE"    ):
+        if value_type.is_vector:
             return cls.Vector(value_type, width, value_format)
         return cls.Other(value_type, width, value_format)

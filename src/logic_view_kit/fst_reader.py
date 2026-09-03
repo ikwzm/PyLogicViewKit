@@ -5,6 +5,7 @@
 import libfst
 import fnmatch
 from enum import IntEnum
+from .value_type import Value_Type
 
 class FST_Reader:
     def __init__(self, file_name):
@@ -181,7 +182,8 @@ class FST_Reader:
         except ValueError:
             return f"UNKNOWN({subtype})"
 
-    def get_value_type(self, var_type, attributes=None):
+    def get_value_type(self, node):
+        attributes = node.get("attributes", None)
         value_type = None
         if attributes is not None:
             for attribute in attributes:
@@ -221,11 +223,12 @@ class FST_Reader:
                         value_type = None
                     break
         if value_type is None:
+            var_type = node["type"]
             if var_type in ("GEN_STRING",
                             "SV_BIT", "SV_LOGIC", "SV_BYTE",
                             "SV_INT", "SV_SHORTINT", "SV_LONGINT"):
                 value_type = var_type
-        return value_type
+        return Value_Type(node["name"], value_type, node["width"])
 
     def read_tree(self):
         self.tree.setdefault("contents", []).clear()
@@ -256,10 +259,10 @@ class FST_Reader:
                     "handle"   : item.handle,
                     "is_alias" : item.is_alias,
                 }
-                node["value_type"] = self.get_value_type(node["type"], attributes)
                 if attributes:
                     node.setdefault("attributes", []).extend(attributes)
                     attributes.clear()
+                node["value_type"] = self.get_value_type(node)
                 stack[-1]["contents"].append(node)
             elif isinstance(item, libfst.hier.AttrSupplemental):
                 attributes.append({
