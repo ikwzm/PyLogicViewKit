@@ -239,18 +239,21 @@ class View_Model:
         }
         def __init__(self, view_list, name, parent_group, option=None):
             super().__init__(view_list, parent_group, option)
-            self.name         = name
-            self.item_list    = []
-            self.closed       = False
-            self.child_option = self.model.get_inherited_option(self.option)
-            self.display_name = self.option["display_name"] or self.name
-            self.expanded     = self.option["expand"]
+            self.name           = name
+            self.item_list      = []
+            self.closed         = False
+            self.child_option   = self.model.get_inherited_option(self.option)
+            self.display_name   = self.option["display_name"] or self.name
+            self.display_signal = None
+            self.expanded       = self.option["expand"]
 
         def close(self):
             if self.closed is True:
                 return
             self.closed = True
             self.unregister_database()
+            if self.display_signal is not None:
+                self.display_signal.close()
             for item in self.item_list:
                 item.close()
             self.item_list.clear()
@@ -269,13 +272,14 @@ class View_Model:
                        group.add_actual_signals(pattern="**", tree=child, option=option)
             return self
 
-        def add_virtual_signal(self, vm_name, signal_name, option=None):
-            if self.closed is True:
-                raise RuntimeError("View_Group is closed")
+        def get_virtual_signal(self, vm_name, signal_name, option=None):
             vm_signal = self.model.get_output_signal_from_virtual_module(vm_name, signal_name)
             if vm_signal is None:
                 raise RuntimeError(f"Not Found Virtual Signal({vm_name},{signal_name}")
-            signal = self.model.View_Virtual_Signal(self.view_list, vm_signal, self, option)
+            return self.model.View_Virtual_Signal(self.view_list, vm_signal, self, option)
+            
+        def add_virtual_signal(self, vm_name, signal_name, option=None):
+            signal = self.get_virtual_signal(vm_name, signal_name, option)
             self.item_list.append(signal)
             return self
 
@@ -291,22 +295,38 @@ class View_Model:
             else:
                 root_tree = self.model.database.get_root_tree()
                 return self.add_actual_signals(pattern, tree=root_tree, option=option)
+
+        def get_actual_signal(self, pattern, option=None):
+            signal_list = self.model.database.find_signals(pattern)
+            if len(signal_list) == 0:
+                raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+            if len(signal_list) >= 2:
+                raise RuntimeError(f'Multiple signals matched the specified pattern: "{pattern}"')
+            path = "::".join(signal_list[0][0])
+            node = signal_list[0][1]
+            if "handle" not in node:
+                raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
+            return self.model.View_Actual_Signal(self.view_list, path, node, self, option)
+
+        def add_display_signal(self, pattern, option=None):
+            if self.closed is True:
+                raise RuntimeError("View_Group is closed")
+            match = self.VIRTUAL_SIGNAL_NAME_RE.fullmatch(pattern)
+            if match:
+                vm_name   = match.group(1)
+                vm_signal = match.group(2)
+                self.display_signal = self.get_virtual_signal(vm_name, vm_signal, option)
+            else:
+                root_tree = self.model.database.get_root_tree()
+                self.display_signal = self.get_actual_signal(pattern, option)
+            return self
         
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
             if self.view_list.clock is not None:
                 raise RuntimeError("View_List already contains a clock")
-            signal_list = self.model.database.find_signals(pattern)
-            if len(signal_list) == 0:
-                raise RuntimeError(f'No clock matched the specified pattern: "{pattern}"')
-            if len(signal_list) >= 2:
-                raise RuntimeError(f'Multiple signals matched the specified clock pattern: "{pattern}"')
-            path = "::".join(signal_list[0][0])
-            node = signal_list[0][1]
-            if "handle" not in node:
-                raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
-            signal = self.model.View_Actual_Signal(self.view_list, path, node, self, option)
+            signal = self.get_actual_signal(pattern, option)
             clock  = self.model.View_Signal_Clock(signal, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
@@ -336,10 +356,14 @@ class View_Model:
                 raise RuntimeError("View_Group is closed")
             for item in self.item_list:
                 item.register_database()
+            if self.display_signal is not None:
+                self.display_signal.register_database()
                 
         def unregister_database(self):
             for item in self.item_list:
                 item.unregister_database()
+            if self.display_signal is not None:
+                self.display_signal.unregister_database()
                 
         def items(self):
             return self.item_list

@@ -466,7 +466,7 @@ class WaveformSignals(QWidget):
                     if color is not None:
                         painter.fillRect(rect, QColor(color))
 
-            def draw_group(group, y):
+            def draw_group_no_signal(group, y):
                 top    = y + 5
                 bottom = y + row_height - 5
                 height = bottom - top
@@ -474,6 +474,12 @@ class WaveformSignals(QWidget):
                 color  = group.wave_group_color
                 if color is not None:
                     painter.fillRect(rect, QColor(color))
+                
+            def draw_group(group, y):
+                if group.display_signal is not None:
+                    draw_signal(group.display_signal, y)
+                else:
+                    draw_group_no_signal(group, y)
                 
             def draw_signal(signal, y):
                 top    = y              + signal.margin_top_height
