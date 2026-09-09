@@ -1,0 +1,600 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2026 ikwzm
+
+from .value_type import Value_Type
+from bisect import bisect_right
+import heapq
+import re
+
+class Register:
+    class Base:
+        def __init__(self, name, value_type, value=None):
+            self.name       = name
+            self.value_type = value_type
+            self.curr_value = None
+            self.set_curr_value(value)
+
+        def set_curr_value(self, value):
+            self.curr_value = type(self).parse_value(value, self.value_type)
+
+    class Logic(Base):
+        VALID_VALUES = set("01lLhHwWzZuUxX-")
+        HIGH_VALUES  = set("1hH")
+        LOW_VALUES   = set("0lL")
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+
+        @classmethod
+        def parse_value(cls, value, value_type):
+            if   isinstance(value, Register.Logic):
+                return value.curr_value
+            elif isinstance(value, int) and value in (0, 1):
+                return str(value)
+            elif isinstance(value, str) and len(value) == 1:
+                if value in Register.Logic.VALID_VALUES:
+                    return value
+            return "X"
+
+        @classmethod
+        def value_is_high(cls, value):
+            return value in Register.Logic.HIGH_VALUES
+
+        @classmethod
+        def value_is_low(cls, value):
+            return value in Register.Logic.LOW_VALUES
+
+        @property
+        def is_high(self):
+            return Register.Logic.value_is_high(self.curr_value)
+
+        @property
+        def is_low(self):
+            return Register.Logic.value_is_low(self.curr_value)
+
+        def __int__(self):
+            if self.is_high:
+                return 1
+            else:
+                return 0
+
+        def __str__(self):
+            return self.curr_value
+                
+        AND_TABLE = {
+            "U": {"U":"U", "X":"U", "0":"0", "1":"U", "Z":"U", "W":"U", "L":"0", "H":"U", "-":"U"},
+            "X": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
+            "0": {"U":"0", "X":"0", "0":"0", "1":"0", "Z":"0", "W":"0", "L":"0", "H":"0", "-":"0"},
+            "1": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "Z": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
+            "W": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
+            "L": {"U":"0", "X":"0", "0":"0", "1":"0", "Z":"0", "W":"0", "L":"0", "H":"0", "-":"0"},
+            "H": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "-": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
+        }
+        @classmethod
+        def value_and_value(cls, value1, value2):
+            return Register.Logic.AND_TABLE[value1.to_upper()][value2.to_upper()]
+            
+        def __and__(self, other):
+            value  = Register.Logic.parse_value(other, self.value_type)
+            result = Register.Logic.value_and_value(self.curr_value, value)
+            return   Constant.Logic(None, self.value_type, result)
+                
+        OR_TABLE = {
+            "U": {"U":"U", "X":"U", "0":"U", "1":"U", "Z":"U", "W":"U", "L":"U", "H":"U", "-":"U"},
+            "X": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
+            "0": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "1": {"U":"U", "X":"X", "0":"1", "1":"1", "Z":"1", "W":"1", "L":"1", "H":"1", "-":"1"},
+            "Z": {"U":"U", "X":"X", "0":"X", "1":"1", "Z":"X", "W":"X", "L":"X", "H":"1", "-":"X"},
+            "W": {"U":"U", "X":"X", "0":"X", "1":"1", "Z":"X", "W":"X", "L":"X", "H":"1", "-":"X"},
+            "L": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "H": {"U":"U", "X":"X", "0":"1", "1":"1", "Z":"1", "W":"1", "L":"1", "H":"1", "-":"1"},
+            "-": {"U":"U", "X":"X", "0":"X", "1":"1", "Z":"X", "W":"X", "L":"X", "H":"1", "-":"X"},
+        }
+        @classmethod
+        def value_or_value(cls, value1, value2):
+            return Register.Logic.OR_TABLE[value1.to_upper()][value2.to_upper()]
+            
+        def __or__(self, other):
+            value  = Register.parse_value(other, self.value_type)
+            result = Register.Logic.value_or_value(self.curr_value, value)
+            return   Constant.Logic(None, self.value_type, result)
+
+        XOR_TABLE = {
+            "U": {"U":"U", "X":"U", "0":"U", "1":"U", "Z":"U", "W":"U", "L":"U", "H":"U", "-":"U"},
+            "X": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
+            "0": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "1": {"U":"U", "X":"X", "0":"1", "1":"0", "Z":"X", "W":"X", "L":"1", "H":"0", "-":"X"},
+            "Z": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
+            "W": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
+            "L": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
+            "H": {"U":"U", "X":"X", "0":"1", "1":"0", "Z":"X", "W":"X", "L":"1", "H":"0", "-":"X"},
+            "-": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
+        }
+        @classmethod
+        def value_xor_value(cls, value1, value2):
+            return Register.Logic.XOR_TABLE[value1.to_upper()][value2.to_upper()]
+
+        def __xor__(self, other):
+            value  = Register.Logic.parse_value(other, self.value_type)
+            result = Register.Logic.value_xor_value(self.curr_value, value)
+            return   Constant.Logic(None, self.value_type, result)
+                
+        NOT_TABLE = {
+            "U":"U", "X":"X", "0":"1", "1":"0", "Z":"X", "W":"X", "L":"1", "H":"0", "-":"X"
+        }
+        @classmethod
+        def not_value(cls, value):
+            return Register.Logic.NOT_TABLE[value.to_upper()]
+
+        def __invert__(self):
+            result = Register.Logic.not_value(self.curr_value)
+            return   Constant.Logic(None, self.value_type, result)
+                
+    class Logic_Vector(Base):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+
+        @classmethod
+        def parse_value(cls, value, value_type):
+            if   isinstance(value, Register.Logic_Vector):
+                return value.curr_value
+            elif isinstance(value, int):
+                return format(value, "b")
+            elif isinstance(value, str) and all(ch in Register.Logic.VALID_VALUES for ch in value):
+                return value
+            else:
+                return None
+
+    class Other(Base):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+
+        @classmethod
+        def parse_value(cls, value, value_type):
+            if   isinstance(value, Register.Other):
+                return value.curr_value
+            elif isinstance(value, str):
+                return value
+            elif isinstance(value, int):
+                return str(int)
+            else:
+                return None
+
+    class Readable_Logic(Logic):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+
+        def set_curr_value(self, value):
+            self.prev_value = self.curr_value
+            super().set_curr_value(value)
+
+        @property
+        def rising_edge(self):
+            return (Register.Logic.value_is_high(self.curr_value) and
+                    Register.Logic.value_is_low(self.prev_value))
+
+        @property
+        def falling_edge(self):
+            return (Register.Logic.value_is_low(self.curr_value) and
+                    Register.Logic.value_is_high(self.prev_value))
+
+    class Readonly_Logic(Readable_Logic):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+        
+        def __ilshift__(self, value):
+            raise RuntimeError(f'{self.name} can not override value')
+                
+    class Writeable_Logic(Readable_Logic):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            self.next_value = self.curr_value
+            self.changed    = False
+
+        def __ilshift__(self, value):
+            next_value = type(self).parse_value(value, self.value_type)
+            if next_value is not None:
+                self.next_value = next_value
+            return self
+
+        def write_init(self):
+            self.next_value = self.curr_value
+            self.changed    = False
+        
+        def write_back(self):
+            if self.curr_value != self.next_value:
+                self.curr_value = self.next_value
+                self.changed    = True
+
+    class Readable_Logic_Vector(Logic_Vector):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            self.prev_value = self.curr_value
+
+        def set_curr_value(self, value):
+            self.prev_value = self.curr_value
+            super().set_curr_value(value)
+
+    class Readonly_Logic_Vector(Readable_Logic_Vector):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            
+        def __ilshift__(self, value):
+            raise RuntimeError(f'{self.name} can not override value')
+                
+    class Writeable_Logic_Vector(Readable_Logic_Vector):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            self.next_value = self.curr_value
+            self.changed    = False
+
+        def __ilshift__(self, value):
+            next_value = type(self).parse_value(value, self.value_type)
+            if next_value is not None:
+                self.next_value = next_value
+            return self
+            
+        def write_init(self):
+            self.next_value = self.curr_value
+            self.changed    = False
+            
+        def write_back(self):
+            if self.curr_value != self.next_value:
+                self.curr_value = self.next_value
+                self.changed    = True
+
+    class Readable_Other(Other):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            self.prev_value = self.curr_value
+
+        def set_curr_value(self, value):
+            self.prev_value = self.curr_value
+            super().set_curr_value(value)
+            
+    class Readonly_Other(Readable_Other):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            
+        def __ilshift__(self, value):
+            raise RuntimeError(f'{self.name} can not override value')
+                
+    class Writeable_Other(Readable_Other):
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type, value)
+            
+        def __ilshift__(self, value):
+            next_value = type(self).parse_value(value, self.value_type)
+            if next_value is not None:
+                self.next_value = next_value
+            return self
+
+        def write_init(self):
+            self.next_value = self.curr_value
+            self.changed    = False
+            
+        def write_back(self):
+            if self.curr_value != self.next_value:
+                self.curr_value = self.next_value
+                self.changed    = True
+
+    @classmethod
+    def new(cls, name, value_type, writeable=False, value=None):
+        if writeable is True:
+            if value_type.is_vector:
+                return cls.Writeable_Logic_Vector(name, value_type, value)
+            if value_type.is_logic:
+                return cls.Writeable_Logic(name, value_type, value)
+            return cls.Writeable_Other(name, value_type)
+        else:
+            if value_type.is_vector:
+                return cls.Readonly_Logic_Vector(name, value_type, value)
+            if value_type.is_logic:
+                return cls.Readonly_Logic(name, value_type, value)
+            return cls.Readonly_Other(name, value_type)
+
+class Constant:
+    class Logic(Register.Logic):
+        def __init__(self, name, value_type, value):
+            super().__init__(name, value_type, value)
+              
+    class Logic_Vector(Register.Logic_Vector):
+        def __init__(self, name, value_type, value):
+            super().__init__(name, value_type, value)
+                
+    class Other(Register.Other):
+        def __init__(self, name, value_type, value):
+            super().__init__(name, value_type, value)
+                
+    @classmethod
+    def new(cls, name, value_type, value_width, value):
+        _value_type = Value_Type(name, value_type, value_width)
+        if   _value_type.is_vector:
+            return cls.Logic_Vector(name, _value_type, value)
+        elif _value_type.is_logic:
+            return cls.Logic(name, _value_type, value)
+        else:
+            return cls.Other(name, value_type, value)
+            
+class Virtual_Module:
+
+    class Signal:
+        def __init__(self, module, name, value_type):
+            self.module     = module
+            self.name       = name
+            self.value_type = value_type
+
+    class Readonly_Signal(Signal):
+        def __init__(self, module, name, value_type, value=None):
+            super().__init__(module, name, value_type)
+            self.register = Register.new(name, value_type, writeable=False, value=value)
+        
+    class Writeable_Signal(Signal):
+        def __init__(self, module, name, value_type, value=None):
+            super().__init__(module, name, value_type)
+            self.register = Register.new(name, value_type, writeable=True , value=value)
+            
+    class Input_Signal(Readonly_Signal):
+        def __init__(self, module, name, node, path, option=None):
+            super().__init__(module, name, node["value_type"])
+            self.node       = node
+            self.path       = path
+            self.handle     = node["handle"]
+            self.registered = False
+            self.closed     = False
+
+        def set_curr_value(self, value):
+            self.register.set_curr_value(value)
+            
+        def close(self):
+            if self.closed is True:
+                return
+            self.closed = True
+            self.unregister_database()
+
+        def register_database(self):
+            if self.registered is False:
+                self.module.database.register_handle(self.handle)
+                self.registered = True
+
+        def unregister_database(self):
+            if self.registered is True:
+                self.module.database.unregister_handle(self.handle)
+                self.registered = False
+
+        def get_wave(self, start_time, end_time):
+            self.register_database()
+            return self.module.database.get(self.handle, start_time, end_time)
+        
+    class Output_Signal(Writeable_Signal):
+        def __init__(self, module, name, value_type, value_width, init_value):
+            _value_type = Value_Type(name, value_type, value_width)
+            super().__init__(module, name, _value_type, init_value)
+            self.start_time = None
+            self.end_time   = None
+            self.curr_time  = None
+            self.closed     = False
+            self.changed    = False
+            self.time_list  = []
+            self.value_list = []
+            
+        def pre_process(self, time):
+            self.curr_time  = time
+            self.register.write_init()
+
+        def post_process(self):
+            self.register.write_back()
+            if self.register.changed:
+                if isinstance(self.register.curr_value, int):
+                    curr_value = format(self.register.curr_value,"b")
+                else:
+                    curr_value = self.register.curr_value
+                self.append(self.curr_time, curr_value)
+                
+        def append(self, time, value):
+            self.time_list.append(time)
+            self.value_list.append(value)
+            if self.start_time is None:
+                self.start_time = time
+            self.end_time = time
+
+        def close(self):
+            if self.closed is True:
+                return
+            self.closed = True
+            self.time_list.clear()
+            self.value_list.clear()
+
+        def get_wave(self, start_time, end_time):
+            if not self.time_list:
+                return []
+            # lo_pos  : start_time 以下の最後の変化位置
+            lo_pos = bisect_right(self.time_list, start_time)
+            if lo_pos > 0:
+                lo_pos = lo_pos -1
+            else:
+                lo_pos = 0
+            # hi_pos : end_time より大きい最初の位置
+            hi_pos = bisect_right(self.time_list, end_time  ) 
+            # start_time 〜 end_time の変化を示すイタレータを返す
+            return (
+                (self.time_list[i], self.value_list[i])
+                for i in range(lo_pos, hi_pos)
+            )
+
+    class Process_Context:
+        def __init__(self):
+            self.signals = {}
+
+        def add_signal(self, signal):
+            self.signals[signal.name] = signal
+
+        def __getattr__(self, name):
+            return self.signals[name].register
+
+    def __init__(self, name, database):
+        self.name               = name
+        self.database           = database
+        self.clock_signal       = None
+        self.input_signal_list  = []
+        self.output_signal_list = []
+        self.process_context    = self.Process_Context()
+        self.process_list       = []
+        self.start_time         = None
+        self.end_time           = None
+        if self.start_time is None or self.start_time < self.database.total_start_time:
+            self.start_time = self.database.total_start_time
+        if self.end_time   is None or self.end_time   > self.database.total_end_time  :
+            self.end_time   = self.database.total_end_time
+        self.current_time   = self.start_time
+
+    def close(self):
+        for input_signal  in self.input_signal_list:
+            input_signal.close()
+        for output_signal in self.output_signal_list:
+            output_signal.close()
+
+    def find_input_signal(self, pattern):
+        signal_list = self.database.find_signals(pattern, tree=None, struct_as_var=False)
+        if len(signal_list) == 0:
+            raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+        if len(signal_list) >= 2:
+            raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{pattern}"')
+        path = "::".join(signal_list[0][0])
+        node = signal_list[0][1]
+        if "handle" not in node:
+            raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
+        return node, path
+
+    def new_clock_signal(self, name, pattern, option=None):
+        if self.clock_signal is not None:
+            raise RuntimeError(f'Multiple clock signals')
+        node, path = self.find_input_signal(pattern)
+        signal     = self.Input_Signal(self, name, node, path, option)
+        self.clock_signal = signal
+        self.process_context.add_signal(signal)
+        return signal
+
+    def add_clock_signal(self, name, pattern, option=None):
+        signal = self.new_clock_signal(name, pattern, option=None)
+        return self
+    
+    def new_input_signal(self, name, pattern, option=None):
+        node, path = self.find_input_signal(pattern)
+        signal     = self.Input_Signal(self, name, node, path, option)
+        self.input_signal_list.append(signal)
+        self.process_context.add_signal(signal)
+        return signal
+
+    def add_input_signal(self, name, pattern, option=None):
+        signal = self.new_input_signal(name, pattern, option=None)
+        return self
+
+    def new_output_signal(self, name, value_type, value_width, init_value=None):
+        signal = self.Output_Signal(self, name, value_type, value_width, init_value)
+        self.output_signal_list.append(signal)
+        self.process_context.add_signal(signal)
+        return signal
+
+    def add_output_signal(self, name, value_type, value_width, init_value=None):
+        signal = self.new_output_signal(name, value_type, value_width, init_value)
+        return self
+    
+    def add_process(self, process):
+        self.process_list.append(process)
+        return self
+
+    def register_database(self):
+        for input_signal in self.input_signal_list:
+            input_signal.register_database()
+                
+    def unregister_database(self):
+        for input_signal in self.input_signal_list:
+            input_signal.unregister_database()
+
+    def generate_wave(self, start_time, end_time):
+        input_signal_iterator_list = []
+        input_signal_wave_queue    = []
+
+        # Input_Signal の変化した時刻と値を input_signal_wave_queue に保持
+        for pos, signal in enumerate(self.input_signal_list):
+            iterator = signal.get_wave(start_time, end_time)
+            input_signal_iterator_list.append(iterator)
+            try:
+                time, value = next(iterator)
+            except StopIteration:
+                continue
+            heapq.heappush(input_signal_wave_queue, (time, pos, value))
+
+        # Clock_Signal の変化した時刻と値を保持
+        if self.clock_signal is not None:
+            clock_signal_iterator = self.clock_signal.get_wave(start_time, end_time)
+            try:
+                clock_signal_event_time, clock_signal_value = next(clock_signal_iterator)
+            except StopIteration:
+                clock_signal_event_time = None
+                clock_signal_value      = "0"
+        else:
+                clock_signal_event_time = None
+                clock_signal_value      = "0"
+
+        while input_signal_wave_queue:
+            # Input_Signal の値が変化する時刻のうち最も早い時刻
+            input_signal_event_time = input_signal_wave_queue[0][0]
+
+            # Input_Signal と Clock_Signal の値が変化した時刻のうち早い時刻
+            if (clock_signal_event_time is None or
+                clock_signal_event_time > input_signal_event_time):
+                time = input_signal_event_time
+            else:
+                time = clock_signal_event_time
+
+            # 同じ時刻に変化する Input_Signal をすべて処理
+            # ただし同時刻に Clock_Signal が変化した場合は除く
+            input_signal_changed_list = []
+            if (clock_signal_event_time is None or
+                clock_signal_event_time > time):
+                while input_signal_wave_queue and input_signal_wave_queue[0][0] == time:
+                    _, pos, value = heapq.heappop(input_signal_wave_queue)
+                    input_signal = self.input_signal_list[pos]
+                    input_signal.set_curr_value(value)
+                    input_signal_changed_list.append(pos)
+
+            # Clock_Signal に値をセット
+            if (clock_signal_event_time is not None and
+                clock_signal_event_time == time):
+                self.clock_signal.set_curr_value(clock_signal_value)
+
+            # Output_Signal に時刻をセット
+            for output_signal in self.output_signal_list:
+                output_signal.pre_process(time)
+            
+            # process を実行
+            for process in self.process_list:
+                process(self.process_context)
+
+            # Output_Signal の変化を取得
+            for output_signal in self.output_signal_list:
+                output_signal.post_process()
+
+            # 変化した Input_Signal の次の値を取得
+            for pos in input_signal_changed_list:
+                try:
+                    next_time, next_value = next(input_signal_iterator_list[pos])
+                    heapq.heappush(input_signal_wave_queue, (next_time, pos, next_value))
+                except StopIteration:
+                    pass                
+
+            # Clock_Signal に値をセットして rising_edge / falling_edge を False にする
+            # と同時に変化した Clock_Signal の時刻と次の値を取得
+            if (clock_signal_event_time is not None and
+                clock_signal_event_time == time):
+                self.clock_signal.set_curr_value(clock_signal_value)
+                try:
+                   clock_signal_event_time, clock_signal_value = next(clock_signal_iterator)
+                except StopIteration:
+                   clock_signal_event_time = None
+                   clock_signal_value      = "0"
+

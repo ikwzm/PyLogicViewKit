@@ -3,6 +3,7 @@
 # Copyright (c) 2026 ikwzm
 
 from   .value_formatter   import Value_Formatter
+from   .virtual_module    import Virtual_Module
 import re
 
 class View_Model:
@@ -49,6 +50,10 @@ class View_Model:
             "display_name"    : None ,
             "value_format"    : None ,
         }
+        def __init__(self, view_list, parent_group, option=None):
+            super().__init__(view_list, parent_group, option)
+        
+    class View_Actual_Signal(View_Signal):
         def __init__(self, view_list, path, node, parent_group, option=None):
             super().__init__(view_list, parent_group, option)
             self.path         = path
@@ -90,6 +95,37 @@ class View_Model:
         def format_value(self, value):
             return self.value_formatter.format_value(value)
             
+    class View_Virtual_Signal(View_Signal):
+        def __init__(self, view_list, signal, parent_group, option=None):
+            super().__init__(view_list, parent_group, option)
+            self.signal       = signal
+            self.name         = self.signal.name
+            self.value_type   = self.signal.value_type
+            self.width        = self.value_type.width
+            self.is_logic     = self.value_type.is_logic
+            self.closed       = False
+            self.display_name = self.option["display_name"] or self.name
+            self.value_formatter = Value_Formatter.get(self.value_type,
+                                                       self.width,
+                                                       self.is_logic,
+                                                       self.option["value_format"])
+        def close(self):
+            if self.closed is True:
+                return
+            self.closed = True
+
+        def register_database(self):
+            pass
+
+        def unregister_database(self):
+            pass
+
+        def get_wave(self, start_time, end_time):
+            return self.signal.get_wave(start_time, end_time)
+
+        def format_value(self, value):
+            return self.value_formatter.format_value(value)
+
     class View_Clock(View_Item):
         DEFAULT_OPTION = {
             "display_name"    : None,
@@ -219,25 +255,43 @@ class View_Model:
                 item.close()
             self.item_list.clear()
 
-        def _add_signals(self, pattern, tree, option):
+        def add_actual_signals(self, pattern, tree, option):
             signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
             for path_name_list, node in signal_list:
                 path = "::".join(path_name_list)
                 if "handle" in node:
-                    signal = self.model.View_Signal(self.view_list, path, node, self, option)
+                    signal = self.model.View_Actual_Signal(self.view_list, path, node, self, option)
                     self.item_list.append(signal)
                 else:
                     group_option = self.model.merge_option(option, {"expand": False})
                     group = self.add_group(node["name"], group_option)
                     for child in node.get("contents", []):
-                       group._add_signals(pattern="**", tree=child, option=option)
+                       group.add_actual_signals(pattern="**", tree=child, option=option)
             return self
 
+        def add_virtual_signal(self, vm_name, signal_name, option=None):
+            if self.closed is True:
+                raise RuntimeError("View_Group is closed")
+            vm_signal = self.model.get_output_signal_from_virtual_module(vm_name, signal_name)
+            if vm_signal is None:
+                raise RuntimeError(f"Not Found Virtual Signal({vm_name},{signal_name}")
+            signal = self.model.View_Virtual_Signal(self.view_list, vm_signal, self, option)
+            self.item_list.append(signal)
+            return self
+
+        VIRTUAL_SIGNAL_NAME_RE=re.compile(r"^\[\s*([a-zA-Z_-]+)\s*\]\s*([a-zA-Z_-]+)")
         def add_signals(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            return self._add_signals(pattern, tree=self.model.database.get_root_tree(), option=option)
-
+            match = self.VIRTUAL_SIGNAL_NAME_RE.fullmatch(pattern)
+            if match:
+                vm_name   = match.group(1)
+                vm_signal = match.group(2)
+                return self.add_virtual_signal(vm_name, vm_signal, option)
+            else:
+                root_tree = self.model.database.get_root_tree()
+                return self.add_actual_signals(pattern, tree=root_tree, option=option)
+        
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
@@ -252,7 +306,7 @@ class View_Model:
             node = signal_list[0][1]
             if "handle" not in node:
                 raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
-            signal = self.model.View_Signal(self.view_list, path, node, self, option)
+            signal = self.model.View_Actual_Signal(self.view_list, path, node, self, option)
             clock  = self.model.View_Signal_Clock(signal, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
@@ -486,6 +540,7 @@ class View_Model:
         self.current_time   = self.start_time
         self.view_list_list = []
         self.curr_view_list = self.add_view_list("top")
+        self.virtual_models = {}
         self.closed         = False
 
     def set_start_time(self, start_time):
@@ -580,6 +635,19 @@ class View_Model:
     def view_lists(self):
         return self.view_list_list
 
+    def add_virtual_module(self, vm_name):
+        virtual_module = Virtual_Module(vm_name, self.database)
+        self.virtual_models[vm_name] = virtual_module
+        return virtual_module
+
+    def get_output_signal_from_virtual_module(self, vm_name, signal_name):
+        if vm_name in self.virtual_models:
+            virtual_module = self.virtual_models[vm_name]
+            for output_signal  in virtual_module.output_signal_list:
+                if output_signal.name == signal_name:
+                    return output_signal
+        return None
+
     def refresh(self):
         self.rebuild()
         
@@ -588,6 +656,8 @@ class View_Model:
             view_list.rebuild()
 
     def close(self):
+        for virtual_model in self.virtual_models.values():
+            virtual_model.close()
         for view_list in self.view_list_list:
             view_list.close()
         self.database.close()
@@ -605,7 +675,13 @@ class View_Model:
         for view_list in self.view_list_list:
             view_list.register_database()
         
+        for virtual_model in self.virtual_models.values():
+            virtual_model.register_database()
+
         self.database.load_wave_signals(start_time, end_time)
+
+        for virtual_model in self.virtual_models.values():
+            virtual_model.generate_wave(start_time, end_time)
 
     def format_time_scale(self, time_scale):
         return self.database.format_time_scale(time_scale)

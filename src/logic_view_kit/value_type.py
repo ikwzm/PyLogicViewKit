@@ -101,32 +101,39 @@ class Value_Type:
                     vector_range_by_type = self.Vector_Range(width_by_type-1, 0)
         if   vector_range_by_name is not None:
             self.vector_range = vector_range_by_name
+            self.width        = self.vector_range.width
             self.is_vector    = True
             self.is_logic     = False
         elif vector_range_by_type is not None:
             self.vector_range = vector_range_by_type
+            self.width        = self.vector_range.width
             self.is_vector    = True
             self.is_logic     = False
         elif value_type in ("SV_BIT"  , "SV_UNSIGNED_BIT"  ,
                             "SV_LOGIC", "SV_UNSIGNED_LOGIC",
                             "VHDL_BIT", "VHDL_STD_LOGIC"   ,"VHDL_STD_ULOGIC"):
             self.vector_range = None
+            self.width        = 1
             self.is_vector    = False
             self.is_logic     = True
         elif value_type in ("GEN_STRING", "VHDL_STRING", "VHDL_BOOLEAN"):
             self.vector_range = None
+            self.width        = 1
             self.is_vector    = False
             self.is_logic     = False
         elif width >  1:
             self.vector_range = self.Vector_Range(int(width)-1, 0)
+            self.width        = self.vector_range.width
             self.is_vector    = True
             self.is_logic     = False
         elif width == 1:
             self.vector_range = None
+            self.width        = 1
             self.is_vector    = False
             self.is_logic     = True
         else:
             self.vector_range = None
+            self.width        = 1
             self.is_vector    = False
             self.is_logic     = False
         self.name       = name
