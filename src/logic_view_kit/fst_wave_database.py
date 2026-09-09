@@ -48,7 +48,7 @@ class FST_Wave_DataBase:
         
         def get(self, start_time, end_time):
             if not self.time_list:
-                return []
+                return iter(())
 
             # lo_pos  : start_time 以下の最後の変化位置
             lo_pos = bisect_right(self.time_list, start_time)
@@ -126,7 +126,7 @@ class FST_Wave_DataBase:
         wave_signal = self.wave_signals.get(handle)
 
         if wave_signal is None:
-            return []
+            return iter(())
 
         if not wave_signal.is_loaded(start_time, end_time):
             self.load_wave_signals(start_time, end_time, {handle: wave_signal})
