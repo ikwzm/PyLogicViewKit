@@ -37,6 +37,7 @@ class View_Model:
             self.wave_signal_color             = self.get_color("wave" , "signal"    )
             self.wave_value_color              = self.get_color("wave" , "value"     )
             self.wave_background_color         = self.get_color("wave" , "background")
+            self.wave_text_color               = self.get_color("wave" , "text"      )
             # Shape for SignalWaveformColumn
             self.edge_slope_width              = self.shape_option.get("edge_slope_width"    , 0)
             self.margin_top_height             = self.shape_option.get("margin_top_height"   , 5)
@@ -544,7 +545,8 @@ class View_Model:
               "wave"      : {"background": "black",
                              "signal" : "#00ff00",
                              "value"  : "white"  ,
-                             "group"  : None},
+                             "group"  : None     ,
+                             "text"   : None     },
         }
     }
     INHERITABLE_OPTION = {"color": {"name": True, "value": True, "wave": True}, "shape": True}
