@@ -3,7 +3,8 @@
 # Copyright (c) 2026 ikwzm
 
 from .value_type import Value_Type
-from bisect import bisect_right
+from bisect      import bisect_right
+from collections import deque
 import heapq
 import re
 
@@ -437,7 +438,7 @@ class Virtual_Module:
     def __init__(self, name, database):
         self.name               = name
         self.database           = database
-        self.clock_signal       = None
+        self.clock_signal_pos   = -1
         self.input_signal_list  = []
         self.output_signal_list = []
         self.process_context    = self.Process_Context()
@@ -469,11 +470,12 @@ class Virtual_Module:
         return node, path
 
     def new_clock_signal(self, name, pattern, option=None):
-        if self.clock_signal is not None:
+        if self.clock_signal_pos >= 0:
             raise RuntimeError(f'Multiple clock signals')
         node, path = self.find_input_signal(pattern)
         signal     = self.Input_Signal(self, name, node, path, option)
-        self.clock_signal = signal
+        self.clock_signal_pos = len(self.input_signal_list)
+        self.input_signal_list.append(signal)
         self.process_context.add_signal(signal)
         return signal
 
@@ -517,8 +519,9 @@ class Virtual_Module:
     def generate_wave(self, start_time, end_time):
         input_signal_iterator_list = []
         input_signal_wave_queue    = []
+        pending_signal_wave_queue  = deque()
 
-        # Input_Signal の変化した時刻と値を input_signal_wave_queue に保持
+        # 入力信号の変化した時刻と値を input_signal_wave_queue に保持
         for pos, signal in enumerate(self.input_signal_list):
             iterator = signal.get_wave(start_time, end_time)
             input_signal_iterator_list.append(iterator)
@@ -528,44 +531,48 @@ class Virtual_Module:
                 continue
             heapq.heappush(input_signal_wave_queue, (time, pos, value))
 
-        # Clock_Signal の変化した時刻と値を保持
-        if self.clock_signal is not None:
-            clock_signal_iterator = self.clock_signal.get_wave(start_time, end_time)
-            try:
-                clock_signal_event_time, clock_signal_value = next(clock_signal_iterator)
-            except StopIteration:
-                clock_signal_event_time = None
-                clock_signal_value      = "0"
-        else:
-                clock_signal_event_time = None
-                clock_signal_value      = "0"
-
-        while input_signal_wave_queue:
-            # Input_Signal の値が変化する時刻のうち最も早い時刻
-            input_signal_event_time = input_signal_wave_queue[0][0]
-
-            # Input_Signal と Clock_Signal の値が変化した時刻のうち早い時刻
-            if (clock_signal_event_time is None or
-                clock_signal_event_time > input_signal_event_time):
-                time = input_signal_event_time
-            else:
-                time = clock_signal_event_time
-
-            # 同じ時刻に変化する Input_Signal をすべて処理
-            # ただし同時刻に Clock_Signal が変化した場合は除く
+        # input_signal_wave_queue と pending_signal_wave_queue が両方とも空になるまでループ
+        while input_signal_wave_queue or pending_signal_wave_queue:
+            clock_signal_event        = False
+            clock_signal_event_value  = None
             input_signal_changed_list = []
-            if (clock_signal_event_time is None or
-                clock_signal_event_time > time):
+            # ペンディングされた入力信号がある場合
+            if pending_signal_wave_queue:
+                # ペンディングされた入力信号の値が変化する時刻
+                time = pending_signal_wave_queue[0][0]
+            # ペンディングされた入力信号がない場合
+            else:
+                # 入力信号の値が変化する時刻のうち最も早い時刻
+                time = input_signal_wave_queue[0][0]
+
+                # 同じ時刻に変化する入力信号を取り出す
+                # その際、クロック信号とそれ以外の信号とを分別する
+                # クロック以外の信号は一旦 pending_signal_wave_queue に格納する
                 while input_signal_wave_queue and input_signal_wave_queue[0][0] == time:
                     _, pos, value = heapq.heappop(input_signal_wave_queue)
+                    if pos == self.clock_signal_pos:
+                        clock_signal_event       = True
+                        clock_signal_event_value = value
+                    else:
+                        pending_signal_wave_queue.append((time, pos, value))
+                        
+            # 同じ時刻に変化する信号のうち、クロック信号がある場合は
+            # 先にクロック信号の変化のみで process を実行する
+            # この場合は pending_signal_wave_queue の内容を保持して次のループで実行する
+            if clock_signal_event:
+                # クロック信号に値をセットして input_signal_changed_list に追加
+                clock_signal = self.input_signal_list[self.clock_signal_pos]
+                clock_signal.set_curr_value(clock_signal_event_value)
+                input_signal_changed_list.append(self.clock_signal_pos)
+            # 同じ時刻に変化する信号のうち、クロック信号がない場合
+            # pending_signal_wave_queue の中身をすべて取り出して
+            # 信号に値をセットして input_signal_changed_list に追加する
+            else:
+                while pending_signal_wave_queue:
+                    _, pos, value = pending_signal_wave_queue.popleft()
                     input_signal = self.input_signal_list[pos]
                     input_signal.set_curr_value(value)
                     input_signal_changed_list.append(pos)
-
-            # Clock_Signal に値をセット
-            if (clock_signal_event_time is not None and
-                clock_signal_event_time == time):
-                self.clock_signal.set_curr_value(clock_signal_value)
 
             # Output_Signal に時刻をセット
             for output_signal in self.output_signal_list:
@@ -579,7 +586,7 @@ class Virtual_Module:
             for output_signal in self.output_signal_list:
                 output_signal.post_process()
 
-            # 変化した Input_Signal の次の値を取得
+            # 変化した入力信号の次の値を取得して input_signal_wave_queue に追加
             for pos in input_signal_changed_list:
                 try:
                     next_time, next_value = next(input_signal_iterator_list[pos])
@@ -587,14 +594,7 @@ class Virtual_Module:
                 except StopIteration:
                     pass                
 
-            # Clock_Signal に値をセットして rising_edge / falling_edge を False にする
-            # と同時に変化した Clock_Signal の時刻と次の値を取得
-            if (clock_signal_event_time is not None and
-                clock_signal_event_time == time):
-                self.clock_signal.set_curr_value(clock_signal_value)
-                try:
-                   clock_signal_event_time, clock_signal_value = next(clock_signal_iterator)
-                except StopIteration:
-                   clock_signal_event_time = None
-                   clock_signal_value      = "0"
-
+            # Clock_Signal に値を再度セットして rising_edge / falling_edge を False にする
+            if clock_signal_event:
+                clock_signal = self.input_signal_list[self.clock_signal_pos]
+                clock_signal.set_curr_value(clock_signal_event_value)
