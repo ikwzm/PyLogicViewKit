@@ -7,6 +7,7 @@ from bisect      import bisect_right
 from collections import deque
 import heapq
 import re
+import inspect
 
 class Register:
     class Base:
@@ -440,15 +441,33 @@ class Virtual_Module:
                 for i in range(lo_pos, hi_pos)
             )
 
-    class Process_Context:
-        def __init__(self):
-            self.signals = {}
+    class Process:
+        def __init__(self, model, process, user_argument=None):
+            self.model         = model
+            self.process       = process
+            self.name          = self.get_process_name(process)
+            self.user_argument = user_argument if isinstance(user_argument, dict) else {}
+            self.parameters    = inspect.signature(process).parameters
+            self.argument_list = []
 
-        def add_signal(self, signal):
-            self.signals[signal.name] = signal
+        @staticmethod
+        def get_process_name(process):
+            return getattr(process, "__name__", type(process).__name__)
 
-        def __getattr__(self, name):
-            return self.signals[name].register
+        def prepare(self):
+            self.argument_list.clear() 
+
+            for param_name in self.parameters:
+                if param_name in self.model.signal_map:
+                    self.argument_list.append(self.model.signal_map[param_name].register)
+                    continue
+                if param_name in self.user_argument:
+                    self.argument_list.append(self.user_argument[param_name])
+                    continue
+                raise RuntimeError(f'Not found argument "{param_name}" in process "{self.name}"')
+
+        def run(self):
+            self.process(*self.argument_list)
 
     def __init__(self, name, database):
         self.name               = name
@@ -456,7 +475,7 @@ class Virtual_Module:
         self.clock_signal_pos   = -1
         self.input_signal_list  = []
         self.output_signal_list = []
-        self.process_context    = self.Process_Context()
+        self.signal_map         = {}
         self.process_list       = []
         self.start_time         = None
         self.end_time           = None
@@ -491,7 +510,7 @@ class Virtual_Module:
         signal     = self.Input_Signal(self, name, node, path, option)
         self.clock_signal_pos = len(self.input_signal_list)
         self.input_signal_list.append(signal)
-        self.process_context.add_signal(signal)
+        self.signal_map[signal.name] = signal
         return signal
 
     def add_clock_signal(self, name, pattern, option=None):
@@ -502,7 +521,7 @@ class Virtual_Module:
         node, path = self.find_input_signal(pattern)
         signal     = self.Input_Signal(self, name, node, path, option)
         self.input_signal_list.append(signal)
-        self.process_context.add_signal(signal)
+        self.signal_map[signal.name] = signal
         return signal
 
     def add_input_signal(self, name, pattern, option=None):
@@ -512,14 +531,18 @@ class Virtual_Module:
     def new_output_signal(self, name, value_type, value_width, init_value=None):
         signal = self.Output_Signal(self, name, value_type, value_width, init_value)
         self.output_signal_list.append(signal)
-        self.process_context.add_signal(signal)
+        self.signal_map[signal.name] = signal
         return signal
 
     def add_output_signal(self, name, value_type, value_width, init_value=None):
         signal = self.new_output_signal(name, value_type, value_width, init_value)
         return self
-    
-    def add_process(self, process):
+
+    def new_process(self, process, user_argument=None):
+        return self.Process(self, process, user_argument)
+        
+    def add_process(self, process, user_argument=None):
+        process = self.new_process(process, user_argument)
         self.process_list.append(process)
         return self
 
@@ -535,6 +558,10 @@ class Virtual_Module:
         input_signal_iterator_list = []
         input_signal_wave_queue    = []
         pending_signal_wave_queue  = deque()
+
+        # process の準備
+        for process in self.process_list:
+            process.prepare()
 
         # 出力信号の波形情報をクリア
         for output_signal in self.output_signal_list:
@@ -599,7 +626,7 @@ class Virtual_Module:
             
             # process を実行
             for process in self.process_list:
-                process(self.process_context)
+                process.run()
 
             # Output_Signal の変化を取得
             for output_signal in self.output_signal_list:
