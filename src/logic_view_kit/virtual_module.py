@@ -377,7 +377,6 @@ class Virtual_Module:
             self.end_time   = None
             self.curr_time  = None
             self.closed     = False
-            self.changed    = False
             self.time_list  = []
             self.value_list = []
             
@@ -401,16 +400,32 @@ class Virtual_Module:
                 self.start_time = time
             self.end_time = time
 
+        def is_generated(self, start_time, end_time):
+            if self.start_time is None:
+                return False
+            return ((start_time >= self.start_time) and (end_time <= self.end_time))
+
+        def update_generated_time(self, start_time, end_time):
+            if self.start_time is None or self.start_time > start_time:
+                self.start_time = start_time
+            if self.end_time   is None or self.end_time   < end_time:
+                self.end_time = end_time
+
+        def clear(self):
+            self.start_time = None
+            self.end_time   = None
+            self.time_list.clear()
+            self.value_list.clear()
+
         def close(self):
             if self.closed is True:
                 return
             self.closed = True
-            self.time_list.clear()
-            self.value_list.clear()
+            self.clear()
 
         def get_wave(self, start_time, end_time):
             if not self.time_list:
-                return []
+                return iter(())
             # lo_pos  : start_time 以下の最後の変化位置
             lo_pos = bisect_right(self.time_list, start_time)
             if lo_pos > 0:
@@ -521,6 +536,10 @@ class Virtual_Module:
         input_signal_wave_queue    = []
         pending_signal_wave_queue  = deque()
 
+        # 出力信号の波形情報をクリア
+        for output_signal in self.output_signal_list:
+            output_signal.clear()
+        
         # 入力信号の変化した時刻と値を input_signal_wave_queue に保持
         for pos, signal in enumerate(self.input_signal_list):
             iterator = signal.get_wave(start_time, end_time)
@@ -598,3 +617,7 @@ class Virtual_Module:
             if clock_signal_event:
                 clock_signal = self.input_signal_list[self.clock_signal_pos]
                 clock_signal.set_curr_value(clock_signal_event_value)
+
+        # 出力信号の格納時刻を更新
+        for output_signal in self.output_signal_list:
+            output_signal.update_generated_time(start_time, end_time)
