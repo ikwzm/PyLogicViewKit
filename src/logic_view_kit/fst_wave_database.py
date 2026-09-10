@@ -45,7 +45,13 @@ class FST_Wave_DataBase:
             if self.start_time is None:
                 return False
             return ((start_time >= self.start_time) and (end_time <= self.end_time))
-        
+
+        def update_loaded_time(self, start_time, end_time):
+            if self.start_time is None or self.start_time > start_time:
+                self.start_time = start_time
+            if self.end_time   is None or self.end_time   < end_time:
+                self.end_time = end_time
+
         def get(self, start_time, end_time):
             if not self.time_list:
                 return iter(())
@@ -121,6 +127,9 @@ class FST_Wave_DataBase:
             wave_signal = require_load.get(handle)
             if wave_signal is not None:
                 wave_signal.append(time, value)
+
+        for handle, wave_signal in require_load.items():
+            wave_signal.update_loaded_time(start_time, end_time)
 
     def get(self, handle, start_time, end_time):
         wave_signal = self.wave_signals.get(handle)
