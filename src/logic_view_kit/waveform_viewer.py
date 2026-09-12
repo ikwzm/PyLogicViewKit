@@ -339,8 +339,14 @@ class WaveformSignals(QWidget):
 
                 if role == Qt.DisplayRole:
                     if index.column() == self.VALUE_COLUMN:
-                        if self.view_list.item_is_signal(item):
-                            return self._get_value(item)
+                        if   self.view_list.item_is_signal(item):
+                            signal = item
+                        elif self.view_list.item_is_group(item):
+                            signal = item.display_signal
+                        else:
+                            signal = None
+                        if signal is not None:
+                            return self._get_value(signal)
                         else:
                             return ""
 
