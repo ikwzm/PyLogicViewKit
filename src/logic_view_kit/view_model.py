@@ -242,6 +242,8 @@ class View_Model:
             super().__init__(view_list, parent_group, option)
             self.name           = name
             self.item_list      = []
+            self.group_map      = {}
+            self.signal_map     = {}
             self.closed         = False
             self.child_option   = self.model.get_inherited_option(self.option)
             self.display_name   = self.option["display_name"] or self.name
@@ -258,6 +260,8 @@ class View_Model:
             for item in self.item_list:
                 item.close()
             self.item_list.clear()
+            self.group_map.clear()
+            self.signal_map.clear()
 
         def add_actual_signals(self, pattern, tree, option):
             signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
@@ -266,6 +270,7 @@ class View_Model:
                 if "handle" in node:
                     signal = self.model.View_Actual_Signal(self.view_list, path, node, self, option)
                     self.item_list.append(signal)
+                    self.signal_map[signal.name] = signal
                 else:
                     group_option = self.model.merge_option(option, {"expand": False})
                     group = self.add_group(node["name"], group_option)
@@ -282,6 +287,7 @@ class View_Model:
         def add_virtual_signal(self, vm_name, signal_name, option=None):
             signal = self.get_virtual_signal(vm_name, signal_name, option)
             self.item_list.append(signal)
+            self.signal_map[signal.name] = signal
             return self
 
         VIRTUAL_SIGNAL_NAME_RE=re.compile(r"^\[\s*([a-zA-Z_-]+)\s*\]\s*([a-zA-Z_-]+)")
@@ -331,6 +337,7 @@ class View_Model:
             clock  = self.model.View_Signal_Clock(signal, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
+            self.signal_map[clock.name] = clock
             return self
             
         def add_virtual_clock(self, name, cycle_time, offset_time, option=None):
@@ -343,6 +350,7 @@ class View_Model:
             clock  = self.model.View_Virtual_Clock(self.view_list, name, cycle, offset, self, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
+            self.signal_map[clock.name] = clock
             return self
             
         def add_group(self, name, option=None):
@@ -350,8 +358,30 @@ class View_Model:
                 raise RuntimeError("View_Group is closed")
             group = self.model.View_Group(self.view_list, name, self, option)
             self.item_list.append(group)
+            self.group_map[group.name] = group
             return group
 
+        def get_group(self, path):
+            if not path:
+                return self
+            name = path.pop(0)
+            if name in self.group_map:
+                return self.group_map[name].get_group(path)
+            return None
+
+        def get_signal(self, path):
+            if not path:
+                return None
+            name = path.pop(0)
+            if not path:
+                if name in self.signal_map:
+                    return self.signal_map[name]
+            else:
+                if name in self.group_map:
+                    return self.group_map[name].get_signal(path)
+            return None
+            
+            
         def register_database(self):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
