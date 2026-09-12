@@ -14,21 +14,24 @@ class Register:
         def __init__(self, name, value_type, value=None):
             self.name       = name
             self.value_type = value_type
-            self.curr_value = None
-            self.set_curr_value(value)
+            self.curr_value = value
+
+        def __str__(self):
+            return self.curr_value
+                
+    class Logic(Base):
+        VALID_VALUES = frozenset("01lLhHwWzZuUxX-")
+        HIGH_VALUES  = frozenset("1hH")
+        LOW_VALUES   = frozenset("0lL")
+        def __init__(self, name, value_type, value=None):
+            super().__init__(name, value_type)
+            self.curr_value = Register.Logic.parse_value(value, self.value_type)
 
         def set_curr_value(self, value):
-            self.curr_value = type(self).parse_value(value, self.value_type)
+            self.curr_value = Register.Logic.parse_value(value, self.value_type)
 
-    class Logic(Base):
-        VALID_VALUES = set("01lLhHwWzZuUxX-")
-        HIGH_VALUES  = set("1hH")
-        LOW_VALUES   = set("0lL")
-        def __init__(self, name, value_type, value=None):
-            super().__init__(name, value_type, value)
-
-        @classmethod
-        def parse_value(cls, value, value_type):
+        @staticmethod
+        def parse_value(value, value_type):
             if   isinstance(value, Register.Logic):
                 return value.curr_value
             elif isinstance(value, int) and value in (0, 1):
@@ -38,13 +41,26 @@ class Register:
                     return value
             return "X"
 
-        @classmethod
-        def value_is_high(cls, value):
+        @staticmethod
+        def value_is_high(value):
             return value in Register.Logic.HIGH_VALUES
 
-        @classmethod
-        def value_is_low(cls, value):
+        @staticmethod
+        def value_is_low(value):
             return value in Register.Logic.LOW_VALUES
+
+        @staticmethod
+        def value_is_01(value):
+            return (Register.Logic.value_is_high(value) or
+                    Register.Logic.value_is_low(value ))
+
+        @staticmethod
+        def value_to_01(value, default="0"):
+            if Register.Logic.value_is_high(value):
+                return "1"
+            if Register.Logic.value_is_low(value):
+                return "0"
+            return default
 
         @property
         def is_high(self):
@@ -60,9 +76,6 @@ class Register:
             else:
                 return 0
 
-        def __str__(self):
-            return self.curr_value
-                
         AND_TABLE = {
             "U": {"U":"U", "X":"U", "0":"0", "1":"U", "Z":"U", "W":"U", "L":"0", "H":"U", "-":"U"},
             "X": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
@@ -74,8 +87,8 @@ class Register:
             "H": {"U":"U", "X":"X", "0":"0", "1":"1", "Z":"X", "W":"X", "L":"0", "H":"1", "-":"X"},
             "-": {"U":"U", "X":"X", "0":"0", "1":"X", "Z":"X", "W":"X", "L":"0", "H":"X", "-":"X"},
         }
-        @classmethod
-        def value_and_value(cls, value1, value2):
+        @staticmethod
+        def value_and_value(value1, value2):
             return Register.Logic.AND_TABLE[value1.to_upper()][value2.to_upper()]
             
         def __and__(self, other):
@@ -94,8 +107,8 @@ class Register:
             "H": {"U":"U", "X":"X", "0":"1", "1":"1", "Z":"1", "W":"1", "L":"1", "H":"1", "-":"1"},
             "-": {"U":"U", "X":"X", "0":"X", "1":"1", "Z":"X", "W":"X", "L":"X", "H":"1", "-":"X"},
         }
-        @classmethod
-        def value_or_value(cls, value1, value2):
+        @staticmethod
+        def value_or_value(value1, value2):
             return Register.Logic.OR_TABLE[value1.to_upper()][value2.to_upper()]
             
         def __or__(self, other):
@@ -114,8 +127,8 @@ class Register:
             "H": {"U":"U", "X":"X", "0":"1", "1":"0", "Z":"X", "W":"X", "L":"1", "H":"0", "-":"X"},
             "-": {"U":"U", "X":"X", "0":"X", "1":"X", "Z":"X", "W":"X", "L":"X", "H":"X", "-":"X"},
         }
-        @classmethod
-        def value_xor_value(cls, value1, value2):
+        @staticmethod
+        def value_xor_value(value1, value2):
             return Register.Logic.XOR_TABLE[value1.to_upper()][value2.to_upper()]
 
         def __xor__(self, other):
@@ -126,8 +139,8 @@ class Register:
         NOT_TABLE = {
             "U":"U", "X":"X", "0":"1", "1":"0", "Z":"X", "W":"X", "L":"1", "H":"0", "-":"X"
         }
-        @classmethod
-        def not_value(cls, value):
+        @staticmethod
+        def not_value(value):
             return Register.Logic.NOT_TABLE[value.to_upper()]
 
         def __invert__(self):
@@ -136,25 +149,111 @@ class Register:
                 
     class Logic_Vector(Base):
         def __init__(self, name, value_type, value=None):
-            super().__init__(name, value_type, value)
+            super().__init__(name, value_type)
+            self.curr_value = Register.Logic_Vector.parse_value(value, self.value_type)
 
-        @classmethod
-        def parse_value(cls, value, value_type):
+        def set_curr_value(self, value):
+            self.curr_value = Register.Logic_Vector.parse_value(value, self.value_type)
+
+        @staticmethod
+        def parse_value(value, value_type):
             if   isinstance(value, Register.Logic_Vector):
-                return value.curr_value
+                return Register.Logic_Vector.resize_value(value.curr_value, value_type)
             elif isinstance(value, int):
-                return format(value, "b")
+                return Register.Logic_Vector.integer_to_value(value, value_type)
             elif isinstance(value, str) and all(ch in Register.Logic.VALID_VALUES for ch in value):
-                return value
+                return Register.Logic_Vector.resize_value(value, value_type)
             else:
                 return None
 
+        @staticmethod
+        def resize_value(value, value_type):
+            width  = value_type.width
+            signed = value_type.signed
+            if len(value) > width:
+                return value[-width:]
+            if len(value) < width:
+                msb       = value[0]
+                msb_is_01 = Register.Logic.value_is_01(msb)
+                if signed is False and msb_is_01 is True:
+                    extension = "0"
+                else:
+                    extension = msb
+                return (extension * (width - len(value))) + value
+            return value
+
+        @staticmethod
+        def integer_to_value(value, value_type):
+            width  = value_type.width
+            signed = value_type.signed
+            if signed:
+                value &= ((1 << width) - 1)
+            elif value < 0:
+                raise ValueError("negative value for unsigned type")
+            return format(value, f"0{width}b")
+        
+        @staticmethod
+        def value_to_01(value, default="0"):
+            return ''.join(Register.Logic.value_to_01(ch,default) for ch in value)
+
+        @staticmethod
+        def value_to_integer(value, value_type):
+            width  = value_type.width
+            signed = value_type.signed
+            number = int(Register.Logic_Vector.value_to_01(value), 2)
+            if signed and number & (1 << width - 1):
+                number -= (1 << width)
+            return number
+        
+        def __int__(self):
+            result = Register.Logic_Vector.value_to_integer(self.curr_value, self.value_type)
+            return result
+
+        @staticmethod
+        def value_and_value(value1, value2):
+            return ''.join(Register.Logic.value_and_value(c1,c2) for c1,c2 in zip(value1, value2))
+            
+        def __and__(self, other):
+            value  = Register.Logic_Vector.parse_value(other, self.value_type)
+            result = Register.Logic_Vector.value_and_value(self.curr_value, value)
+            return   Constant.Logic_Vector(None, self.value_type, result)
+        
+        @staticmethod
+        def value_or_value(value1, value2):
+            return ''.join(Register.Logic.value_or_value(c1,c2) for c1,c2 in zip(value1, value2))
+            
+        def __or__(self, other):
+            value  = Register.Logic_Vector.parse_value(other, self.value_type)
+            result = Register.Logic_Vector.value_or_value(self.curr_value, value)
+            return   Constant.Logic_Vector(None, self.value_type, result)
+        
+        @staticmethod
+        def value_xor_value(value1, value2):
+            return ''.join(Register.Logic.value_xor_value(c1,c2) for c1,c2 in zip(value1, value2))
+            
+        def __xor__(self, other):
+            value  = Register.Logic_Vector.parse_value(other, self.value_type)
+            result = Register.Logic_Vector.value_xor_value(self.curr_value, value)
+            return   Constant.Logic_Vector(None, self.value_type, result)
+
+        @staticmethod
+        def not_value(value):
+            return ''.join(Register.Logic.not_value(c) for c in value)
+
+        def __invert__(self):
+            result = Register.Logic_Vector.not_value(self.curr_value)
+            return   Constant.Logic_Vector(None, self.value_type, result)
+        
     class Other(Base):
         def __init__(self, name, value_type, value=None):
-            super().__init__(name, value_type, value)
+            super().__init__(name, value_type)
+            self.curr_value = Register.Other.parse_value(value, self.value_type)
 
-        @classmethod
-        def parse_value(cls, value, value_type):
+        def set_curr_value(self, value):
+            self.curr_value = Register.Other.parse_value(value, self.value_type)
+
+        @staticmethod
+        def parse_value(value, value_type):
             if   isinstance(value, Register.Other):
                 return value.curr_value
             elif isinstance(value, str):
@@ -167,6 +266,7 @@ class Register:
     class Readable_Logic(Logic):
         def __init__(self, name, value_type, value=None):
             super().__init__(name, value_type, value)
+            self.prev_value = self.curr_value
 
         def set_curr_value(self, value):
             self.prev_value = self.curr_value
