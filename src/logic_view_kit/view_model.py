@@ -277,7 +277,7 @@ class View_Model:
             signal_option      = option["signal"]
             struct_as_group    = signal_option["struct_as_group"]
             signal_is_unique   = signal_option.get("unique"  , False)
-            signal_is_required = signal_option.get("required", False) or signal_is_unique
+            signal_is_required = signal_option.get("required", False)
 
             signal_list = self.model.database.find_signals(pattern, tree, struct_as_group)
 
@@ -332,7 +332,7 @@ class View_Model:
                 return self.add_actual_signals(pattern, tree=root_tree, option=option)
 
         def get_actual_signal(self, pattern, option=None):
-            signal_option = self.new_option_for_actual_signal(option, {"unique": True})
+            signal_option = self.new_option_for_actual_signal(option, {"required": True, "unique": True})
             signal_list   = self.get_actual_signal_list(pattern, tree=None, option=signal_option)
             path = "::".join(signal_list[0][0])
             node = signal_list[0][1]
