@@ -236,7 +236,8 @@ class View_Model:
     class View_Group(View_Item):
         DEFAULT_OPTION = {
             "display_name"    : None,
-            "expand"          : True
+            "expand"          : True,
+            "signal"          : {"struct_as_group": True}
         }
         def __init__(self, view_list, name, parent_group, option=None):
             super().__init__(view_list, parent_group, option)
@@ -263,19 +264,46 @@ class View_Model:
             self.group_map.clear()
             self.signal_map.clear()
 
+        def new_option_for_actual_signal(self, option, force_flags=None):
+            if isinstance(force_flags, dict):
+                option = self.model.merge_option({"signal": force_flags}, option)
+            if isinstance(option, dict) and "signal" in option:
+                signal_option = self.model.merge_option(option["signal"], self.option["signal"])
+            else:
+                signal_option = self.option["signal"]
+            return self.model.merge_option({"signal": signal_option}, option)
+
+        def get_actual_signal_list(self, pattern, tree, option):
+            signal_option      = option["signal"]
+            struct_as_group    = signal_option["struct_as_group"]
+            signal_is_unique   = signal_option.get("unique"  , False)
+            signal_is_required = signal_option.get("required", False) or signal_is_unique
+
+            signal_list = self.model.database.find_signals(pattern, tree, struct_as_group)
+
+            if signal_is_required is True and len(signal_list) == 0:
+                raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+            if signal_is_unique   is True and len(signal_list) >= 2:
+                raise RuntimeError(f'Multiple signals matched the specified pattern: "{pattern}"')
+            return signal_list
+
         def add_actual_signals(self, pattern, tree, option):
-            signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
+            signal_option   = self.new_option_for_actual_signal(option)
+            struct_as_group = signal_option["signal"]["struct_as_group"]
+            signal_list     = self.get_actual_signal_list(pattern, tree, signal_option)
             for path_name_list, node in signal_list:
                 path = "::".join(path_name_list)
                 if "handle" in node:
-                    signal = self.model.View_Actual_Signal(self.view_list, path, node, self, option)
+                    signal = self.model.View_Actual_Signal(self.view_list, path, node, self, signal_option)
                     self.item_list.append(signal)
                     self.signal_map[signal.name] = signal
-                else:
+                elif struct_as_group is True:
                     group_option = self.model.merge_option(option, {"expand": False})
                     group = self.add_group(node["name"], group_option)
                     for child in node.get("contents", []):
                        group.add_actual_signals(pattern="**", tree=child, option=option)
+                else:
+                    raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
             return self
 
         def get_virtual_signal(self, vm_name, signal_name, option=None):
@@ -304,16 +332,13 @@ class View_Model:
                 return self.add_actual_signals(pattern, tree=root_tree, option=option)
 
         def get_actual_signal(self, pattern, option=None):
-            signal_list = self.model.database.find_signals(pattern)
-            if len(signal_list) == 0:
-                raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
-            if len(signal_list) >= 2:
-                raise RuntimeError(f'Multiple signals matched the specified pattern: "{pattern}"')
+            signal_option = self.new_option_for_actual_signal(option, {"unique": True})
+            signal_list   = self.get_actual_signal_list(pattern, tree=None, option=signal_option)
             path = "::".join(signal_list[0][0])
             node = signal_list[0][1]
             if "handle" not in node:
                 raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
-            return self.model.View_Actual_Signal(self.view_list, path, node, self, option)
+            return self.model.View_Actual_Signal(self.view_list, path, node, self, signal_option)
 
         def add_display_signal(self, pattern, option=None):
             if self.closed is True:
@@ -564,22 +589,30 @@ class View_Model:
             "margin_bottom_height" : 5 ,
         },
         "color"              : {
-              "cursor"    : "yellow",
-              "marker"    : "red"   ,
-              "header"    : {"background": "black", "foreground"   : "white"},
-              "time_ruler": {"background": "black",
-                             "line"      : "gray" ,
-                             "text"      : "white"},
-              "name"      : {"background": "black", "foreground"   : "white"},
-              "value"     : {"background": "black", "foreground"   : "white"},
-              "wave"      : {"background": "black",
-                             "signal" : "#00ff00",
-                             "value"  : "white"  ,
-                             "group"  : None     ,
-                             "text"   : None     },
-        }
+            "cursor"    : "yellow",
+            "marker"    : "red"   ,
+            "header"    : {"background": "black", "foreground"   : "white"},
+            "time_ruler": {"background": "black",
+                           "line"      : "gray" ,
+                           "text"      : "white"},
+            "name"      : {"background": "black", "foreground"   : "white"},
+            "value"     : {"background": "black", "foreground"   : "white"},
+            "wave"      : {"background": "black",
+                           "signal" : "#00ff00",
+                           "value"  : "white"  ,
+                           "group"  : None     ,
+                           "text"   : None     },
+        },
+        "signal"             : {
+            "struct_as_group"  : True ,
+            "required"         : False,
+            "unique"           : False,
+        },
     }
-    INHERITABLE_OPTION = {"color": {"name": True, "value": True, "wave": True}, "shape": True}
+    INHERITABLE_OPTION = {"color" : {"name": True, "value": True, "wave": True},
+                          "shape" : True,
+                          "signal": True,
+                         }
     
     def __init__(self, database, option=None):
         self.database       = database
