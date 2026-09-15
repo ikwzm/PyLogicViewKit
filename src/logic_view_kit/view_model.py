@@ -3,6 +3,8 @@
 # Copyright (c) 2026 ikwzm
 
 from   .value_formatter   import Value_Formatter
+from   .view_option       import View_Option
+from   .virtual_module    import Virtual_Module
 import re
 
 class View_Model:
@@ -12,14 +14,13 @@ class View_Model:
             self.view_list    = view_list
             self.model        = self.view_list.model
             self.parent_group = parent_group
+            self.option       = View_Option(self.DEFAULT_OPTION)
             if parent_group is not None:
-                self.option   = self.model.merge_option(option,
-                                self.model.merge_option(parent_group.child_option,
-                                                        self.DEFAULT_OPTION))
+                self.option   = self.option.merge(parent_group.child_option)
                 self.depth    = parent_group.depth + 1
             else:
-                self.option   = self.model.merge_option(option, self.DEFAULT_OPTION)
                 self.depth    = 0
+            self.option       = self.option.merge(option)
             self.color_option = self.option["color"]
             self.shape_option = self.option["shape"]
 
@@ -36,6 +37,7 @@ class View_Model:
             self.wave_signal_color             = self.get_color("wave" , "signal"    )
             self.wave_value_color              = self.get_color("wave" , "value"     )
             self.wave_background_color         = self.get_color("wave" , "background")
+            self.wave_text_color               = self.get_color("wave" , "text"      )
             # Shape for SignalWaveformColumn
             self.edge_slope_width              = self.shape_option.get("edge_slope_width"    , 0)
             self.margin_top_height             = self.shape_option.get("margin_top_height"   , 5)
@@ -49,6 +51,10 @@ class View_Model:
             "display_name"    : None ,
             "value_format"    : None ,
         }
+        def __init__(self, view_list, parent_group, option=None):
+            super().__init__(view_list, parent_group, option)
+        
+    class View_Actual_Signal(View_Signal):
         def __init__(self, view_list, path, node, parent_group, option=None):
             super().__init__(view_list, parent_group, option)
             self.path         = path
@@ -90,6 +96,37 @@ class View_Model:
         def format_value(self, value):
             return self.value_formatter.format_value(value)
             
+    class View_Virtual_Signal(View_Signal):
+        def __init__(self, view_list, signal, parent_group, option=None):
+            super().__init__(view_list, parent_group, option)
+            self.signal       = signal
+            self.name         = self.signal.name
+            self.value_type   = self.signal.value_type
+            self.width        = self.value_type.width
+            self.is_logic     = self.value_type.is_logic
+            self.closed       = False
+            self.display_name = self.option["display_name"] or self.name
+            self.value_formatter = Value_Formatter.get(self.value_type,
+                                                       self.width,
+                                                       self.is_logic,
+                                                       self.option["value_format"])
+        def close(self):
+            if self.closed is True:
+                return
+            self.closed = True
+
+        def register_database(self):
+            pass
+
+        def unregister_database(self):
+            pass
+
+        def get_wave(self, start_time, end_time):
+            return self.signal.get_wave(start_time, end_time)
+
+        def format_value(self, value):
+            return self.value_formatter.format_value(value)
+
     class View_Clock(View_Item):
         DEFAULT_OPTION = {
             "display_name"    : None,
@@ -124,7 +161,7 @@ class View_Model:
         def __init__(self, signal, option=None):
             super().__init__(signal.view_list, signal.name, signal.parent_group, option)
             self.signal   = signal
-            self.option   = self.model.merge_option(self.signal.option, self.option)
+            self.option   = self.option.merge(self.signal.option)
             self.is_logic = signal.is_logic
             
         def register_database(self):
@@ -199,63 +236,133 @@ class View_Model:
     class View_Group(View_Item):
         DEFAULT_OPTION = {
             "display_name"    : None,
-            "expand"          : True
+            "expand"          : True,
+            "signal"          : {"struct_as_group": True}
         }
         def __init__(self, view_list, name, parent_group, option=None):
             super().__init__(view_list, parent_group, option)
-            self.name         = name
-            self.item_list    = []
-            self.closed       = False
-            self.child_option = self.model.get_inherited_option(self.option)
-            self.display_name = self.option["display_name"] or self.name
-            self.expanded     = self.option["expand"]
+            self.name           = name
+            self.item_list      = []
+            self.group_map      = {}
+            self.signal_map     = {}
+            self.closed         = False
+            self.child_option   = self.option.select(View_Model.INHERITABLE_OPTION)
+            self.display_name   = self.option["display_name"] or self.name
+            self.display_signal = None
+            self.expanded       = self.option["expand"]
 
         def close(self):
             if self.closed is True:
                 return
             self.closed = True
             self.unregister_database()
+            if self.display_signal is not None:
+                self.display_signal.close()
             for item in self.item_list:
                 item.close()
             self.item_list.clear()
+            self.group_map.clear()
+            self.signal_map.clear()
 
-        def _add_signals(self, pattern, tree, option):
-            signal_list = self.model.database.find_signals(pattern, tree=tree, struct_as_var=True)
+        def new_option_for_actual_signal(self, option, force_flags=None):
+            signal_option = View_Option(self.option["signal"])
+            if isinstance(option, dict) and "signal" in option:
+                signal_option = signal_option.merge(option["signal"])
+            option = View_Option(option)
+            if isinstance(force_flags, dict):
+                option = option.merge({"signal": force_flags})
+            return option.merge({"signal": signal_option})
+
+        def get_actual_signal_list(self, pattern, tree, option):
+            signal_option      = option["signal"]
+            struct_as_group    = signal_option["struct_as_group"]
+            signal_is_unique   = signal_option.get("unique"  , False)
+            signal_is_required = signal_option.get("required", False)
+
+            signal_list = self.model.database.find_signals(pattern, tree, struct_as_group)
+
+            if signal_is_required is True and len(signal_list) == 0:
+                raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+            if signal_is_unique   is True and len(signal_list) >= 2:
+                raise RuntimeError(f'Multiple signals matched the specified pattern: "{pattern}"')
+            return signal_list
+
+        def add_actual_signals(self, pattern, tree, option):
+            signal_option   = self.new_option_for_actual_signal(option)
+            struct_as_group = signal_option["signal"]["struct_as_group"]
+            signal_list     = self.get_actual_signal_list(pattern, tree, signal_option)
             for path_name_list, node in signal_list:
                 path = "::".join(path_name_list)
                 if "handle" in node:
-                    signal = self.model.View_Signal(self.view_list, path, node, self, option)
+                    signal = self.model.View_Actual_Signal(self.view_list, path, node, self, signal_option)
                     self.item_list.append(signal)
-                else:
-                    group_option = self.model.merge_option(option, {"expand": False})
+                    self.signal_map[signal.name] = signal
+                elif struct_as_group is True:
+                    group_option = View_Option({"expand": False}).merge(option)
                     group = self.add_group(node["name"], group_option)
                     for child in node.get("contents", []):
-                       group._add_signals(pattern="**", tree=child, option=option)
+                       group.add_actual_signals(pattern="**", tree=child, option=option)
+                else:
+                    raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
             return self
 
+        def get_virtual_signal(self, vm_name, signal_name, option=None):
+            vm_signal = self.model.get_output_signal_from_virtual_module(vm_name, signal_name)
+            if vm_signal is None:
+                raise RuntimeError(f"Not Found Virtual Signal({vm_name},{signal_name}")
+            return self.model.View_Virtual_Signal(self.view_list, vm_signal, self, option)
+            
+        def add_virtual_signal(self, vm_name, signal_name, option=None):
+            signal = self.get_virtual_signal(vm_name, signal_name, option)
+            self.item_list.append(signal)
+            self.signal_map[signal.name] = signal
+            return self
+
+        VIRTUAL_SIGNAL_NAME_RE=re.compile(r"^\[\s*([a-zA-Z_-]+)\s*\]\s*([a-zA-Z_-]+)")
         def add_signals(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            return self._add_signals(pattern, tree=self.model.database.get_root_tree(), option=option)
+            match = self.VIRTUAL_SIGNAL_NAME_RE.fullmatch(pattern)
+            if match:
+                vm_name   = match.group(1)
+                vm_signal = match.group(2)
+                return self.add_virtual_signal(vm_name, vm_signal, option)
+            else:
+                root_tree = self.model.database.get_root_tree()
+                return self.add_actual_signals(pattern, tree=root_tree, option=option)
 
+        def get_actual_signal(self, pattern, option=None):
+            signal_option = self.new_option_for_actual_signal(option, {"required": True, "unique": True})
+            signal_list   = self.get_actual_signal_list(pattern, tree=None, option=signal_option)
+            path = "::".join(signal_list[0][0])
+            node = signal_list[0][1]
+            if "handle" not in node:
+                raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
+            return self.model.View_Actual_Signal(self.view_list, path, node, self, signal_option)
+
+        def add_display_signal(self, pattern, option=None):
+            if self.closed is True:
+                raise RuntimeError("View_Group is closed")
+            match = self.VIRTUAL_SIGNAL_NAME_RE.fullmatch(pattern)
+            if match:
+                vm_name   = match.group(1)
+                vm_signal = match.group(2)
+                self.display_signal = self.get_virtual_signal(vm_name, vm_signal, option)
+            else:
+                root_tree = self.model.database.get_root_tree()
+                self.display_signal = self.get_actual_signal(pattern, option)
+            return self
+        
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
             if self.view_list.clock is not None:
                 raise RuntimeError("View_List already contains a clock")
-            signal_list = self.model.database.find_signals(pattern)
-            if len(signal_list) == 0:
-                raise RuntimeError(f'No clock matched the specified pattern: "{pattern}"')
-            if len(signal_list) >= 2:
-                raise RuntimeError(f'Multiple signals matched the specified clock pattern: "{pattern}"')
-            path = "::".join(signal_list[0][0])
-            node = signal_list[0][1]
-            if "handle" not in node:
-                raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
-            signal = self.model.View_Signal(self.view_list, path, node, self, option)
+            signal = self.get_actual_signal(pattern, option)
             clock  = self.model.View_Signal_Clock(signal, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
+            self.signal_map[clock.name] = clock
             return self
             
         def add_virtual_clock(self, name, cycle_time, offset_time, option=None):
@@ -268,6 +375,7 @@ class View_Model:
             clock  = self.model.View_Virtual_Clock(self.view_list, name, cycle, offset, self, option)
             self.item_list.append(clock)
             self.view_list.clock = clock
+            self.signal_map[clock.name] = clock
             return self
             
         def add_group(self, name, option=None):
@@ -275,17 +383,43 @@ class View_Model:
                 raise RuntimeError("View_Group is closed")
             group = self.model.View_Group(self.view_list, name, self, option)
             self.item_list.append(group)
+            self.group_map[group.name] = group
             return group
 
+        def get_group(self, path):
+            if not path:
+                return self
+            name = path.pop(0)
+            if name in self.group_map:
+                return self.group_map[name].get_group(path)
+            return None
+
+        def get_signal(self, path):
+            if not path:
+                return None
+            name = path.pop(0)
+            if not path:
+                if name in self.signal_map:
+                    return self.signal_map[name]
+            else:
+                if name in self.group_map:
+                    return self.group_map[name].get_signal(path)
+            return None
+            
+            
         def register_database(self):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
             for item in self.item_list:
                 item.register_database()
+            if self.display_signal is not None:
+                self.display_signal.register_database()
                 
         def unregister_database(self):
             for item in self.item_list:
                 item.unregister_database()
+            if self.display_signal is not None:
+                self.display_signal.unregister_database()
                 
         def items(self):
             return self.item_list
@@ -300,8 +434,8 @@ class View_Model:
             self.start_time     = self.model.start_time
             self.end_time       = self.model.end_time
             self.current_time   = self.start_time
-            self.option         = self.model.merge_option(option, self.DEFAULT_OPTION)
-            self.group_option   = self.model.get_inherited_option(self.option)
+            self.option         = View_Option(self.DEFAULT_OPTION).merge(option)
+            self.group_option   = self.option.select(View_Model.INHERITABLE_OPTION)
             self.root_group     = self.model.View_Group(self, "", None, self.group_option)
             self.clock          = None
             self.view_item_list = []
@@ -329,19 +463,19 @@ class View_Model:
         def add_group(self, name, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            group_option = self.model.merge_option(option, self.group_option)
+            group_option = self.group_option.merge(option)
             return self.root_group.add_group(name, group_option)
 
         def add_signal_clock(self, pattern, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            clock_option = self.model.merge_option(option, self.group_option)
+            clock_option = self.group_option.merge(option)
             return self.root_group.add_signal_clock(pattern, clock_option)
 
         def add_virtual_clock(self, name, cycle_time, offset_time, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            clock_option = self.model.merge_option(option, self.group_option)
+            clock_option = self.group_option.merge(option)
             return self.root_group.add_virtual_clock(name, cycle_time, offset_time, clock_option)
         
         def rebuild(self):
@@ -455,26 +589,35 @@ class View_Model:
             "margin_bottom_height" : 5 ,
         },
         "color"              : {
-              "cursor"    : "yellow",
-              "marker"    : "red"   ,
-              "header"    : {"background": "black", "foreground"   : "white"},
-              "time_ruler": {"background": "black",
-                             "line"      : "gray" ,
-                             "text"      : "white"},
-              "name"      : {"background": "black", "foreground"   : "white"},
-              "value"     : {"background": "black", "foreground"   : "white"},
-              "wave"      : {"background": "black",
-                             "signal" : "#00ff00",
-                             "value"  : "white"  ,
-                             "group"  : None},
-        }
+            "cursor"    : "yellow",
+            "marker"    : "red"   ,
+            "header"    : {"background": "black", "foreground"   : "white"},
+            "time_ruler": {"background": "black",
+                           "line"      : "gray" ,
+                           "text"      : "white"},
+            "name"      : {"background": "black", "foreground"   : "white"},
+            "value"     : {"background": "black", "foreground"   : "white"},
+            "wave"      : {"background": "black",
+                           "signal" : "#00ff00",
+                           "value"  : "white"  ,
+                           "group"  : None     ,
+                           "text"   : None     },
+        },
+        "signal"             : {
+            "struct_as_group"  : True ,
+            "required"         : False,
+            "unique"           : False,
+        },
     }
-    INHERITABLE_OPTION = {"color": {"name": True, "value": True, "wave": True}, "shape": True}
+    INHERITABLE_OPTION = {"color" : {"name": True, "value": True, "wave": True},
+                          "shape" : True,
+                          "signal": True,
+                         }
     
     def __init__(self, database, option=None):
         self.database       = database
-        self.option         = self.merge_option(option, self.DEFAULT_OPTION)
-        self.child_option   = self.get_inherited_option(self.option)
+        self.option         = View_Option(self.DEFAULT_OPTION).merge(option)
+        self.child_option   = self.option.select(View_Model.INHERITABLE_OPTION)
         self.database.build_tree()
         self.start_time     = self.parse_time(self.option["start_time"  ])
         self.end_time       = self.parse_time(self.option["end_time"    ])
@@ -486,6 +629,7 @@ class View_Model:
         self.current_time   = self.start_time
         self.view_list_list = []
         self.curr_view_list = self.add_view_list("top")
+        self.virtual_models = {}
         self.closed         = False
 
     def set_start_time(self, start_time):
@@ -515,70 +659,27 @@ class View_Model:
 
         raise ValueError(f"Invalid time format: {text}")
 
-    def deep_copy(self, obj):
-        if isinstance(obj, dict):
-            result = {}
-            for key,value in obj.items():
-                result[key] = self.deep_copy(value)
-            return result
-        if isinstance(obj, list):
-            result = []
-            for value in obj:
-                result.append(self.deep_copy(value))
-            return result
-        if isinstance(obj, tuple):
-            result = []
-            for value in obj:
-                result.append(self.deep_copy(value))
-            return tuple(result)
-        if isinstance(obj, set):
-            result = set()
-            for value in obj:
-                result.add(self.deep_copy(value))
-            return result
-        return obj
-        
-    def new_option(self, default_option):
-        if default_option is None:
-            return {}
-        else:
-            return self.deep_copy(default_option)
-
-    def merge_option(self, new, base):
-        base_option = self.new_option(base)
-        if new is None:
-            return base_option
-        for new_key, new_value in new.items():
-            if new_key in base_option:
-                if isinstance(new_value, dict) and isinstance(base_option[new_key], dict):
-                    base_option[new_key] = self.merge_option(new_value, base_option[new_key])
-                else:
-                    base_option[new_key] = new_value
-            else:
-                base_option[new_key] = self.deep_copy(new_value)
-        return base_option
-
-    def get_inherited_option(self, option, inheritable_option=None):
-        if inheritable_option is None:
-            return self.get_inherited_option(option, self.INHERITABLE_OPTION)
-        new_option = {}
-        for key,value in inheritable_option.items():
-            if key not in option:
-                continue
-            if value is True:
-                new_option[key] = self.deep_copy(option[key])
-            elif isinstance(value, dict) and isinstance(option[key], dict):
-                new_option[key] = self.get_inherited_option(option[key], value)
-        return new_option
-        
     def add_view_list(self, name, option=None):
-        new_option  = self.merge_option(option, self.child_option)
+        new_option  = self.child_option.merge(option)
         view_list   = self.View_List(self, name, new_option)
         self.view_list_list.append(view_list)
         return view_list
 
     def view_lists(self):
         return self.view_list_list
+
+    def add_virtual_module(self, vm_name):
+        virtual_module = Virtual_Module(vm_name, self.database)
+        self.virtual_models[vm_name] = virtual_module
+        return virtual_module
+
+    def get_output_signal_from_virtual_module(self, vm_name, signal_name):
+        if vm_name in self.virtual_models:
+            virtual_module = self.virtual_models[vm_name]
+            for output_signal  in virtual_module.output_signal_list:
+                if output_signal.name == signal_name:
+                    return output_signal
+        return None
 
     def refresh(self):
         self.rebuild()
@@ -588,6 +689,8 @@ class View_Model:
             view_list.rebuild()
 
     def close(self):
+        for virtual_model in self.virtual_models.values():
+            virtual_model.close()
         for view_list in self.view_list_list:
             view_list.close()
         self.database.close()
@@ -605,7 +708,13 @@ class View_Model:
         for view_list in self.view_list_list:
             view_list.register_database()
         
+        for virtual_model in self.virtual_models.values():
+            virtual_model.register_database()
+
         self.database.load_wave_signals(start_time, end_time)
+
+        for virtual_model in self.virtual_models.values():
+            virtual_model.generate_wave(start_time, end_time)
 
     def format_time_scale(self, time_scale):
         return self.database.format_time_scale(time_scale)

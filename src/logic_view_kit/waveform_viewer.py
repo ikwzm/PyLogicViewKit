@@ -339,8 +339,14 @@ class WaveformSignals(QWidget):
 
                 if role == Qt.DisplayRole:
                     if index.column() == self.VALUE_COLUMN:
-                        if self.view_list.item_is_signal(item):
-                            return self._get_value(item)
+                        if   self.view_list.item_is_signal(item):
+                            signal = item
+                        elif self.view_list.item_is_group(item):
+                            signal = item.display_signal
+                        else:
+                            signal = None
+                        if signal is not None:
+                            return self._get_value(signal)
                         else:
                             return ""
 
@@ -466,7 +472,7 @@ class WaveformSignals(QWidget):
                     if color is not None:
                         painter.fillRect(rect, QColor(color))
 
-            def draw_group(group, y):
+            def draw_group_no_signal(group, y):
                 top    = y + 5
                 bottom = y + row_height - 5
                 height = bottom - top
@@ -474,6 +480,12 @@ class WaveformSignals(QWidget):
                 color  = group.wave_group_color
                 if color is not None:
                     painter.fillRect(rect, QColor(color))
+                
+            def draw_group(group, y):
+                if group.display_signal is not None:
+                    draw_signal(group.display_signal, y)
+                else:
+                    draw_group_no_signal(group, y)
                 
             def draw_signal(signal, y):
                 top    = y              + signal.margin_top_height
@@ -544,6 +556,30 @@ class WaveformSignals(QWidget):
                     painter.drawLine(draw_left, bottom, right, bottom)
                     draw_signal_value(signal, curr_value, draw_left, draw_width)
 
+                def draw_signal_text(signal, curr_value, prev_value, left, right):
+                    value_text = str(signal.format_value(curr_value))
+                    width      = right - left
+                    text_color = signal.wave_text_color.get(value_text, None)
+                    if text_color is not None:
+                        background_color = text_color.get("background", signal.wave_background_color)
+                        foreground_color = text_color.get("foreground", signal.wave_value_color     )
+                    else:
+                        background_color = signal.wave_background_color
+                        foreground_color = signal.wave_value_color
+                    draw_rect    = QRect(left, top, width, height)
+                    painter.fillRect(draw_rect, QColor(background_color))
+                    font_metrics = painter.fontMetrics()
+                    value_rect   = font_metrics.tightBoundingRect(value_text)
+                    left_margin  = 2
+                    right_margin = 2
+                    draw_left    = left  + left_margin
+                    draw_width   = width - left_margin - right_margin
+                    if value_rect.width() < draw_width:
+                        draw_rect  = QRect(draw_left, top, draw_width, height)
+                        align_flag = Qt.AlignVCenter | Qt.AlignLeft
+                        painter.setPen(QPen(QColor(foreground_color)))
+                        painter.drawText(draw_rect, align_flag, value_text)
+                    
                 prev_value = None
                 curr_value = None
                 curr_time  = None
@@ -562,7 +598,9 @@ class WaveformSignals(QWidget):
                         continue
                     curr_x = self.time_to_x(curr_time)
                     next_x = self.time_to_x(next_time)
-                    if signal.is_logic:
+                    if   signal.wave_text_color is not None:
+                        draw_signal_text(signal, curr_value, prev_value, curr_x, next_x)
+                    elif signal.is_logic:
                         draw_signal_logic(signal, curr_value, prev_value, curr_x, next_x)
                     else:
                         draw_signal_bus(  signal, curr_value, prev_value, curr_x, next_x)
@@ -573,7 +611,9 @@ class WaveformSignals(QWidget):
                 if curr_time is not None:
                     curr_x = self.time_to_x(curr_time)
                     next_x = self.time_to_x(end_time)
-                    if signal.is_logic:
+                    if   signal.wave_text_color is not None:
+                        draw_signal_text(signal, curr_value, prev_value, curr_x, next_x)
+                    elif signal.is_logic:
                         draw_signal_logic(signal, curr_value, prev_value, curr_x, next_x)
                     else:
                         draw_signal_bus(signal, curr_value, prev_value, curr_x, next_x)
