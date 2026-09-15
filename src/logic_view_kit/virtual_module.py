@@ -569,6 +569,11 @@ class Virtual_Module:
         def run(self):
             self.process(*self.argument_list)
 
+    DEFAULT_OPTION = {
+        "struct_as_group"  : False,
+        "required"         : False,
+        "unique"           : False,
+    }
     def __init__(self, name, database):
         self.name               = name
         self.database           = database
@@ -591,35 +596,30 @@ class Virtual_Module:
         for output_signal in self.output_signal_list:
             output_signal.close()
 
-    def find_input_signal(self, pattern):
-        signal_list = self.database.find_signals(pattern, tree=None, struct_as_var=False)
-        if len(signal_list) == 0:
+    def find_input_signal_list(self, pattern, option):
+        struct_as_group    = self.DEFAULT_OPTION["struct_as_group"]
+        signal_is_required = self.DEFAULT_OPTION["required"]
+        signal_is_unique   = self.DEFAULT_OPTION["unique"]
+        if isinstance(option, dict):
+            struct_as_group    = option.get("struct_as_group", struct_as_group   )
+            signal_is_required = option.get("required"       , signal_is_required)
+            signal_is_unique   = option.get("unique"         , signal_is_unique  )
+        signal_list = self.database.find_signals(pattern, None, struct_as_group)
+        if signal_is_required is True and len(signal_list) == 0:
             raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
-        if len(signal_list) >= 2:
+        if signal_is_unique   is True and len(signal_list) >= 2:
             raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{pattern}"')
+        return signal_list
+    
+    def new_input_signal(self, name, pattern, option=None):
+        signal_list = self.find_input_signal_list(pattern, option)
+        if not signal_list:
+            return None
         path = "::".join(signal_list[0][0])
         node = signal_list[0][1]
         if "handle" not in node:
             raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
-        return node, path
-
-    def new_clock_signal(self, name, pattern, option=None):
-        if self.clock_signal_pos >= 0:
-            raise RuntimeError(f'Multiple clock signals')
-        node, path = self.find_input_signal(pattern)
-        signal     = self.Input_Signal(self, name, node, path, option)
-        self.clock_signal_pos = len(self.input_signal_list)
-        self.input_signal_list.append(signal)
-        self.signal_map[signal.name] = signal
-        return signal
-
-    def add_clock_signal(self, name, pattern, option=None):
-        signal = self.new_clock_signal(name, pattern, option=None)
-        return self
-    
-    def new_input_signal(self, name, pattern, option=None):
-        node, path = self.find_input_signal(pattern)
-        signal     = self.Input_Signal(self, name, node, path, option)
+        signal = self.Input_Signal(self, name, node, path, option)
         self.input_signal_list.append(signal)
         self.signal_map[signal.name] = signal
         return signal
@@ -628,6 +628,20 @@ class Virtual_Module:
         signal = self.new_input_signal(name, pattern, option=None)
         return self
 
+    def new_clock_signal(self, name, pattern, option=None):
+        if self.clock_signal_pos >= 0:
+            raise RuntimeError(f'Multiple clock signals')
+        clock_signal_pos = len(self.input_signal_list)
+        clock_signal     = self.new_input_signal(name, pattern, option)
+        if clock_signal is None:
+            return None
+        self.clock_signal_pos = clock_signal_pos
+        return clock_signal
+
+    def add_clock_signal(self, name, pattern, option=None):
+        signal = self.new_clock_signal(name, pattern, option=None)
+        return self
+    
     def new_output_signal(self, name, value_type, value_width, init_value=None):
         signal = self.Output_Signal(self, name, value_type, value_width, init_value)
         self.output_signal_list.append(signal)
