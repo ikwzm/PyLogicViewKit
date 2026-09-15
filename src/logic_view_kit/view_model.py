@@ -3,6 +3,7 @@
 # Copyright (c) 2026 ikwzm
 
 from   .value_formatter   import Value_Formatter
+from   .view_option       import View_Option
 from   .virtual_module    import Virtual_Module
 import re
 
@@ -13,14 +14,13 @@ class View_Model:
             self.view_list    = view_list
             self.model        = self.view_list.model
             self.parent_group = parent_group
+            self.option       = View_Option(self.DEFAULT_OPTION)
             if parent_group is not None:
-                self.option   = self.model.merge_option(option,
-                                self.model.merge_option(parent_group.child_option,
-                                                        self.DEFAULT_OPTION))
+                self.option   = self.option.merge(parent_group.child_option)
                 self.depth    = parent_group.depth + 1
             else:
-                self.option   = self.model.merge_option(option, self.DEFAULT_OPTION)
                 self.depth    = 0
+            self.option       = self.option.merge(option)
             self.color_option = self.option["color"]
             self.shape_option = self.option["shape"]
 
@@ -161,7 +161,7 @@ class View_Model:
         def __init__(self, signal, option=None):
             super().__init__(signal.view_list, signal.name, signal.parent_group, option)
             self.signal   = signal
-            self.option   = self.model.merge_option(self.signal.option, self.option)
+            self.option   = self.option.merge(self.signal.option)
             self.is_logic = signal.is_logic
             
         def register_database(self):
@@ -246,7 +246,7 @@ class View_Model:
             self.group_map      = {}
             self.signal_map     = {}
             self.closed         = False
-            self.child_option   = self.model.get_inherited_option(self.option)
+            self.child_option   = self.option.select(View_Model.INHERITABLE_OPTION)
             self.display_name   = self.option["display_name"] or self.name
             self.display_signal = None
             self.expanded       = self.option["expand"]
@@ -265,13 +265,13 @@ class View_Model:
             self.signal_map.clear()
 
         def new_option_for_actual_signal(self, option, force_flags=None):
-            if isinstance(force_flags, dict):
-                option = self.model.merge_option({"signal": force_flags}, option)
+            signal_option = View_Option(self.option["signal"])
             if isinstance(option, dict) and "signal" in option:
-                signal_option = self.model.merge_option(option["signal"], self.option["signal"])
-            else:
-                signal_option = self.option["signal"]
-            return self.model.merge_option({"signal": signal_option}, option)
+                signal_option = signal_option.merge(option["signal"])
+            option = View_Option(option)
+            if isinstance(force_flags, dict):
+                option = option.merge({"signal": force_flags})
+            return option.merge({"signal": signal_option})
 
         def get_actual_signal_list(self, pattern, tree, option):
             signal_option      = option["signal"]
@@ -298,7 +298,7 @@ class View_Model:
                     self.item_list.append(signal)
                     self.signal_map[signal.name] = signal
                 elif struct_as_group is True:
-                    group_option = self.model.merge_option(option, {"expand": False})
+                    group_option = View_Option({"expand": False}).merge(option)
                     group = self.add_group(node["name"], group_option)
                     for child in node.get("contents", []):
                        group.add_actual_signals(pattern="**", tree=child, option=option)
@@ -434,8 +434,8 @@ class View_Model:
             self.start_time     = self.model.start_time
             self.end_time       = self.model.end_time
             self.current_time   = self.start_time
-            self.option         = self.model.merge_option(option, self.DEFAULT_OPTION)
-            self.group_option   = self.model.get_inherited_option(self.option)
+            self.option         = View_Option(self.DEFAULT_OPTION).merge(option)
+            self.group_option   = self.option.select(View_Model.INHERITABLE_OPTION)
             self.root_group     = self.model.View_Group(self, "", None, self.group_option)
             self.clock          = None
             self.view_item_list = []
@@ -463,19 +463,19 @@ class View_Model:
         def add_group(self, name, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            group_option = self.model.merge_option(option, self.group_option)
+            group_option = self.group_option.merge(option)
             return self.root_group.add_group(name, group_option)
 
         def add_signal_clock(self, pattern, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            clock_option = self.model.merge_option(option, self.group_option)
+            clock_option = self.group_option.merge(option)
             return self.root_group.add_signal_clock(pattern, clock_option)
 
         def add_virtual_clock(self, name, cycle_time, offset_time, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
-            clock_option = self.model.merge_option(option, self.group_option)
+            clock_option = self.group_option.merge(option)
             return self.root_group.add_virtual_clock(name, cycle_time, offset_time, clock_option)
         
         def rebuild(self):
@@ -616,8 +616,8 @@ class View_Model:
     
     def __init__(self, database, option=None):
         self.database       = database
-        self.option         = self.merge_option(option, self.DEFAULT_OPTION)
-        self.child_option   = self.get_inherited_option(self.option)
+        self.option         = View_Option(self.DEFAULT_OPTION).merge(option)
+        self.child_option   = self.option.select(View_Model.INHERITABLE_OPTION)
         self.database.build_tree()
         self.start_time     = self.parse_time(self.option["start_time"  ])
         self.end_time       = self.parse_time(self.option["end_time"    ])
@@ -659,64 +659,8 @@ class View_Model:
 
         raise ValueError(f"Invalid time format: {text}")
 
-    def deep_copy(self, obj):
-        if isinstance(obj, dict):
-            result = {}
-            for key,value in obj.items():
-                result[key] = self.deep_copy(value)
-            return result
-        if isinstance(obj, list):
-            result = []
-            for value in obj:
-                result.append(self.deep_copy(value))
-            return result
-        if isinstance(obj, tuple):
-            result = []
-            for value in obj:
-                result.append(self.deep_copy(value))
-            return tuple(result)
-        if isinstance(obj, set):
-            result = set()
-            for value in obj:
-                result.add(self.deep_copy(value))
-            return result
-        return obj
-        
-    def new_option(self, default_option):
-        if default_option is None:
-            return {}
-        else:
-            return self.deep_copy(default_option)
-
-    def merge_option(self, new, base):
-        base_option = self.new_option(base)
-        if new is None:
-            return base_option
-        for new_key, new_value in new.items():
-            if new_key in base_option:
-                if isinstance(new_value, dict) and isinstance(base_option[new_key], dict):
-                    base_option[new_key] = self.merge_option(new_value, base_option[new_key])
-                else:
-                    base_option[new_key] = new_value
-            else:
-                base_option[new_key] = self.deep_copy(new_value)
-        return base_option
-
-    def get_inherited_option(self, option, inheritable_option=None):
-        if inheritable_option is None:
-            return self.get_inherited_option(option, self.INHERITABLE_OPTION)
-        new_option = {}
-        for key,value in inheritable_option.items():
-            if key not in option:
-                continue
-            if value is True:
-                new_option[key] = self.deep_copy(option[key])
-            elif isinstance(value, dict) and isinstance(option[key], dict):
-                new_option[key] = self.get_inherited_option(option[key], value)
-        return new_option
-        
     def add_view_list(self, name, option=None):
-        new_option  = self.merge_option(option, self.child_option)
+        new_option  = self.child_option.merge(option)
         view_list   = self.View_List(self, name, new_option)
         self.view_list_list.append(view_list)
         return view_list
