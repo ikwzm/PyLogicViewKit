@@ -278,13 +278,14 @@ class View_Model:
             struct_as_group    = signal_option["struct_as_group"]
             signal_is_unique   = signal_option.get("unique"  , False)
             signal_is_required = signal_option.get("required", False)
+            signal_pattern     = pattern.format_map(signal_option)
 
-            signal_list = self.model.database.find_signals(pattern, tree, struct_as_group)
+            signal_list = self.model.database.find_signals(signal_pattern, tree, struct_as_group)
 
             if signal_is_required is True and len(signal_list) == 0:
-                raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+                raise RuntimeError(f'No signal matched the specified pattern: "{signal_pattern}"')
             if signal_is_unique   is True and len(signal_list) >= 2:
-                raise RuntimeError(f'Multiple signals matched the specified pattern: "{pattern}"')
+                raise RuntimeError(f'Multiple signals matched the specified pattern: "{signal_pattern}"')
             return signal_list
 
         def add_actual_signals(self, pattern, tree, option):
