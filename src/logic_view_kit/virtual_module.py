@@ -625,7 +625,7 @@ class Virtual_Module:
         return signal
 
     def add_input_signal(self, name, pattern, option=None):
-        signal = self.new_input_signal(name, pattern, option=None)
+        signal = self.new_input_signal(name, pattern, option)
         return self
 
     def new_clock_signal(self, name, pattern, option=None):
