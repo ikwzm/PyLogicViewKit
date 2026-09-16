@@ -600,15 +600,17 @@ class Virtual_Module:
         struct_as_group    = self.DEFAULT_OPTION["struct_as_group"]
         signal_is_required = self.DEFAULT_OPTION["required"]
         signal_is_unique   = self.DEFAULT_OPTION["unique"]
+        signal_pattern     = pattern
         if isinstance(option, dict):
             struct_as_group    = option.get("struct_as_group", struct_as_group   )
             signal_is_required = option.get("required"       , signal_is_required)
             signal_is_unique   = option.get("unique"         , signal_is_unique  )
-        signal_list = self.database.find_signals(pattern, None, struct_as_group)
+            signal_pattern     = pattern.format_map(option)
+        signal_list = self.database.find_signals(signal_pattern, None, struct_as_group)
         if signal_is_required is True and len(signal_list) == 0:
-            raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+            raise RuntimeError(f'No signal matched the specified pattern: "{signal_pattern}"')
         if signal_is_unique   is True and len(signal_list) >= 2:
-            raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{pattern}"')
+            raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{signal_pattern}"')
         return signal_list
     
     def new_input_signal(self, name, pattern, option=None):
