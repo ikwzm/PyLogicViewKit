@@ -1,113 +1,66 @@
+from logic_view_kit import View_Option
+
 status_color  = {"NONE" : {"foreground": "#707070" , "background": "#202020" },
                  "XFER" : {"foreground": "#FFFFFF" , "background": "red" },
                  "VALID": {"foreground": "#FFFFFF" , "background": "blue" },
                  "READY": {"foreground": "#A0A0A0" , "background": "#303030" }}
 class Template:
-    def __init__(self, parent_group, name, signal_pattern, clock_pattern=None, option=None):
+    def __init__(self, parent_group, name, option=None):
         self.name           = name
-        self.signal_pattern = signal_pattern
-        self.option         = option
-        self.signal_map     = []
-        self.root_group     = parent_group.add_group(self.name, option)
-        if clock_pattern is not None:
-            self.root_group.add_signal_clock(clock_pattern)
-
-    def build_signal_map(self, signal_map, option):
-        def build(contents, parent_option):
-            new_list = []
-            for item in contents:
-                if "group" in item:
-                    group_name     = item["name"]
-                    group_option   = item.get("option")
-                    child_contents = item["group"]
-                    child_group    = build(child_contents, group_option)
-                    new_list.append({"name": group_name, "option": group_option, "group": child_group})
-                if "signal" in item:
-                    signal_name    = item["name"]
-                    signal_option  = item.get("option")
-                    signal_pattern = item["signal"]
-                    signal_pattern = self.signal_pattern + signal_pattern
-                    new_list.append({"name": signal_name, "option": signal_option, "signal": signal_pattern})
-            return new_list
-        self.signal_map = build(signal_map, option)
-                
-    def build_group(self):
-        def build(group, signal_map):
-            for item in signal_map:
-                if "group" in item:
-                    group_name     = item["name"]
-                    group_option   = item.get("option")
-                    child_contents = item["group"]
-                    child_group    = group.add_group(group_name, group_option)
-                    build(child_group, child_contents)
-                    continue
-                if "signal" in item:
-                    signal_name    = item["name"]
-                    signal_option  = item.get("option")
-                    signal_pattern = item["signal"]
-                    group.add_signals(signal_pattern, signal_option)
-                    continue
-        build(self.root_group, self.signal_map)
+        self.parent_group   = parent_group
+        self.option         = View_Option(option)
+        self.template       = self.VIEW_TEMPLATE
+        self.root_group     = parent_group.add_group(self.name, self.option)
 
     def add_virtual_module(self, vm_name):
         return self.root_group.model.add_virtual_module(vm_name)
     
-    def add_input_signals_to_virtual_module(self, virtual_module):
-        def add_input_singals(signal_map):
-            for item in signal_map:
-                if "group" in item:
-                    child_contents = item["group"]
-                    add_input_singals(child_contents)
-                if "signal" in item:
-                    signal_name    = item["name"]
-                    signal_option  = item.get("option")
-                    signal_pattern = item["signal"]
-                    virtual_module.add_input_signal(signal_name, signal_pattern, signal_option)
-        add_input_singals(self.signal_map)
-                    
 class AXI4_Read_Template(Template):
-    SIGNAL_MAP = [
+    VIEW_TEMPLATE = [
+        {"name"  : "aclk",
+         "option": {"signal": {"unique": True}},
+         "clock" : {"signal": "{clock}", "option": {"signal":{"required":True}}}
+        },
         {"name"  : "ar",
          "option": {"signal": {"unique": True}},
          "group" : [
-             {"name": "arid"    , "signal": "arid*"    , "option": {"signal": {"required": False}}},
-             {"name": "araddr"  , "signal": "araddr*"  , "option": {"signal": {"required": True }}},
-             {"name": "arlen"   , "signal": "arlen*"   , "option": {"signal": {"required": False}}},
-             {"name": "arsize"  , "signal": "arsize*"  , "option": {"signal": {"required": False}}},
-             {"name": "arburst" , "signal": "arburst*" , "option": {"signal": {"required": False}}},
-             {"name": "arlock"  , "signal": "arlock*"  , "option": {"signal": {"required": False}}},
-             {"name": "arcache" , "signal": "arcache*" , "option": {"signal": {"required": False}}},
-             {"name": "arprot"  , "signal": "arprot*"  , "option": {"signal": {"required": False}}},
-             {"name": "arregion", "signal": "arregion*", "option": {"signal": {"required": False}}},
-             {"name": "aruser"  , "signal": "aruser*"  , "option": {"signal": {"required": False}}},
-             {"name": "arvalid" , "signal": "arvalid"  , "option": {"signal": {"required": True }}},
-             {"name": "arready" , "signal": "arready"  , "option": {"signal": {"required": True }}},
+             {"name": "arid"    , "signal": "{prefix}arid*"    , "option":{"signal":{"required":False}}},
+             {"name": "araddr"  , "signal": "{prefix}araddr*"  , "option":{"signal":{"required":True }}},
+             {"name": "arlen"   , "signal": "{prefix}arlen*"   , "option":{"signal":{"required":False}}},
+             {"name": "arsize"  , "signal": "{prefix}arsize*"  , "option":{"signal":{"required":False}}},
+             {"name": "arburst" , "signal": "{prefix}arburst*" , "option":{"signal":{"required":False}}},
+             {"name": "arlock"  , "signal": "{prefix}arlock*"  , "option":{"signal":{"required":False}}},
+             {"name": "arcache" , "signal": "{prefix}arcache*" , "option":{"signal":{"required":False}}},
+             {"name": "arprot"  , "signal": "{prefix}arprot*"  , "option":{"signal":{"required":False}}},
+             {"name": "arregion", "signal": "{prefix}arregion*", "option":{"signal":{"required":False}}},
+             {"name": "aruser"  , "signal": "{prefix}aruser*"  , "option":{"signal":{"required":False}}},
+             {"name": "arvalid" , "signal": "{prefix}arvalid"  , "option":{"signal":{"required":True }}},
+             {"name": "arready" , "signal": "{prefix}arready"  , "option":{"signal":{"required":True }}},
          ],
         },
         {"name"  : "r",
          "option": {"signal": {"unique": True}},
          "group" : [
-             {"name": "rid"     , "signal": "rid*"     , "option": {"signal": {"required": False}}},
-             {"name": "ruser"   , "signal": "ruser*"   , "option": {"signal": {"required": False}}},
-             {"name": "rdata"   , "signal": "rdata*"   , "option": {"signal": {"required": True }}},
-             {"name": "rresp"   , "signal": "rresp*"   , "option": {"signal": {"required": True }}},
-             {"name": "rlast"   , "signal": "rlast"    , "option": {"signal": {"required": True }}},
-             {"name": "rvalid"  , "signal": "rvalid"   , "option": {"signal": {"required": True }}},
-             {"name": "rready"  , "signal": "rready"   , "option": {"signal": {"required": True }}},
+             {"name": "rid"     , "signal": "{prefix}rid*"     , "option":{"signal":{"required":False}}},
+             {"name": "ruser"   , "signal": "{prefix}ruser*"   , "option":{"signal":{"required":False}}},
+             {"name": "rdata"   , "signal": "{prefix}rdata*"   , "option":{"signal":{"required":True }}},
+             {"name": "rresp"   , "signal": "{prefix}rresp*"   , "option":{"signal":{"required":True }}},
+             {"name": "rlast"   , "signal": "{prefix}rlast"    , "option":{"signal":{"required":True }}},
+             {"name": "rvalid"  , "signal": "{prefix}rvalid"   , "option":{"signal":{"required":True }}},
+             {"name": "rready"  , "signal": "{prefix}rready"   , "option":{"signal":{"required":True }}},
          ],
         },
     ]
-    def __init__(self, parent_group, name, signal_pattern, clock_pattern, option=None):
-        super().__init__(parent_group, name, signal_pattern, None, option)
-        self.build_signal_map(self.SIGNAL_MAP, self.option)
-        self.clock_pattern  = clock_pattern
+    def __init__(self, parent_group, name, prefix, clock, option=None):
+        new_option = View_Option({"signal": {"prefix": prefix, "clock": clock}}).merge(option)
+        super().__init__(parent_group, name, new_option)
 
     def build(self):
-        self.build_group()
+        self.root_group.apply_view_template(self.VIEW_TEMPLATE)
         self.vm_name        = self.name + "_vm"
+        self.vm_option      = self.root_group.child_option.merge(self.option)
         self.virtual_module = self.add_virtual_module(self.vm_name)
-        self.add_input_signals_to_virtual_module(self.virtual_module)
-        self.virtual_module.add_clock_signal( "aclk", self.clock_pattern)
+        self.virtual_module.apply_view_template(self.VIEW_TEMPLATE, self.vm_option)
         self.virtual_module.add_output_signal("status"        , "VHDL_STRING"  , None, "NONE")
         self.virtual_module.add_output_signal("pipeline_level", "VHDL_SIGNED"  , 32,   0)
         self.virtual_module.add_output_signal("ar_status"     , "VHDL_STRING"  , None, "NONE")
@@ -159,59 +112,61 @@ class AXI4_Read_Template(Template):
         self.axi_r.add_display_signal(   f"[{self.vm_name}]r_status", status_option)
             
 class AXI4_Write_Template(Template):
-    SIGNAL_MAP = [
+    VIEW_TEMPLATE = [
+        {"name"  : "aclk",
+         "clock" : {"signal": "{clock}", "option": {"signal":{"unique": True, "required":True}}}
+        },
         {"name"  : "aw",
          "option": {"signal": {"unique": True}},
          "group" : [
-             {"name": "awid"    , "signal": "awid*"    , "option": {"signal": {"required": False}}},
-             {"name": "awaddr"  , "signal": "awaddr*"  , "option": {"signal": {"required": True }}},
-             {"name": "awlen"   , "signal": "awlen*"   , "option": {"signal": {"required": False}}},
-             {"name": "awsize"  , "signal": "awsize*"  , "option": {"signal": {"required": False}}},
-             {"name": "awburst" , "signal": "awburst*" , "option": {"signal": {"required": False}}},
-             {"name": "awlock"  , "signal": "awlock*"  , "option": {"signal": {"required": False}}},
-             {"name": "awcache" , "signal": "awcache*" , "option": {"signal": {"required": False}}},
-             {"name": "awprot"  , "signal": "awprot*"  , "option": {"signal": {"required": False}}},
-             {"name": "awregion", "signal": "awregion*", "option": {"signal": {"required": False}}},
-             {"name": "awuser"  , "signal": "awuser*"  , "option": {"signal": {"required": False}}},
-             {"name": "awqos"   , "signal": "awqos*"   , "option": {"signal": {"required": False}}},
-             {"name": "awvalid" , "signal": "awvalid"  , "option": {"signal": {"required": True }}},
-             {"name": "awready" , "signal": "awready"  , "option": {"signal": {"required": True }}},
+             {"name": "awid"    , "signal": "{prefix}awid*"    , "option":{"signal":{"required":False}}},
+             {"name": "awaddr"  , "signal": "{prefix}awaddr*"  , "option":{"signal":{"required":True }}},
+             {"name": "awlen"   , "signal": "{prefix}awlen*"   , "option":{"signal":{"required":False}}},
+             {"name": "awsize"  , "signal": "{prefix}awsize*"  , "option":{"signal":{"required":False}}},
+             {"name": "awburst" , "signal": "{prefix}awburst*" , "option":{"signal":{"required":False}}},
+             {"name": "awlock"  , "signal": "{prefix}awlock*"  , "option":{"signal":{"required":False}}},
+             {"name": "awcache" , "signal": "{prefix}awcache*" , "option":{"signal":{"required":False}}},
+             {"name": "awprot"  , "signal": "{prefix}awprot*"  , "option":{"signal":{"required":False}}},
+             {"name": "awregion", "signal": "{prefix}awregion*", "option":{"signal":{"required":False}}},
+             {"name": "awuser"  , "signal": "{prefix}awuser*"  , "option":{"signal":{"required":False}}},
+             {"name": "awqos"   , "signal": "{prefix}awqos*"   , "option":{"signal":{"required":False}}},
+             {"name": "awvalid" , "signal": "{prefix}awvalid"  , "option":{"signal":{"required":True }}},
+             {"name": "awready" , "signal": "{prefix}awready"  , "option":{"signal":{"required":True }}},
          ],
         },
         {"name"  : "w",
          "option": {"signal": {"unique": True}},
          "group" : [
-             {"name": "wid"     , "signal": "wid*"     , "option": {"signal": {"required": False}}},
-             {"name": "wuser"   , "signal": "wuser*"   , "option": {"signal": {"required": False}}},
-             {"name": "wdata"   , "signal": "wdata*"   , "option": {"signal": {"required": True }}},
-             {"name": "wstrb"   , "signal": "wstrb*"   , "option": {"signal": {"required": True }}},
-             {"name": "wlast"   , "signal": "wlast"    , "option": {"signal": {"required": True }}},
-             {"name": "wvalid"  , "signal": "wvalid"   , "option": {"signal": {"required": True }}},
-             {"name": "wready"  , "signal": "wready"   , "option": {"signal": {"required": True }}},
+             {"name": "wid"     , "signal": "{prefix}wid*"     , "option":{"signal":{"required":False}}},
+             {"name": "wuser"   , "signal": "{prefix}wuser*"   , "option":{"signal":{"required":False}}},
+             {"name": "wdata"   , "signal": "{prefix}wdata*"   , "option":{"signal":{"required":True }}},
+             {"name": "wstrb"   , "signal": "{prefix}wstrb*"   , "option":{"signal":{"required":True }}},
+             {"name": "wlast"   , "signal": "{prefix}wlast"    , "option":{"signal":{"required":True }}},
+             {"name": "wvalid"  , "signal": "{prefix}wvalid"   , "option":{"signal":{"required":True }}},
+             {"name": "wready"  , "signal": "{prefix}wready"   , "option":{"signal":{"required":True }}},
          ],
         },
         {"name"  : "b",
          "option": {"signal": {"unique": True}},
          "group" : [
-             {"name": "bid"     , "signal": "bid*"     , "option": {"signal": {"required": False}}},
-             {"name": "buser"   , "signal": "buser*"   , "option": {"signal": {"required": False}}},
-             {"name": "bresp"   , "signal": "bresp*"   , "option": {"signal": {"required": True }}},
-             {"name": "bvalid"  , "signal": "bvalid"   , "option": {"signal": {"required": True }}},
-             {"name": "bready"  , "signal": "bready"   , "option": {"signal": {"required": True }}},
+             {"name": "bid"     , "signal": "{prefix}bid*"     , "option":{"signal":{"required":False}}},
+             {"name": "buser"   , "signal": "{prefix}buser*"   , "option":{"signal":{"required":False}}},
+             {"name": "bresp"   , "signal": "{prefix}bresp*"   , "option":{"signal":{"required":True }}},
+             {"name": "bvalid"  , "signal": "{prefix}bvalid"   , "option":{"signal":{"required":True }}},
+             {"name": "bready"  , "signal": "{prefix}bready"   , "option":{"signal":{"required":True }}},
          ],
         },
     ]
-    def __init__(self, parent_group, name, signal_pattern, clock_pattern=None, option=None):
-        super().__init__(parent_group, name, signal_pattern, None, option)
-        self.build_signal_map(self.SIGNAL_MAP, self.option)
-        self.clock_pattern = clock_pattern
+    def __init__(self, parent_group, name, prefix, clock, option=None):
+        new_option = View_Option({"signal": {"prefix": prefix, "clock": clock}}).merge(option)
+        super().__init__(parent_group, name, new_option)
 
     def build(self):
-        self.build_group()
+        self.root_group.apply_view_template(self.VIEW_TEMPLATE)
         self.vm_name        = self.name + "_vm"
+        self.vm_option      = self.root_group.child_option.merge(self.option)
         self.virtual_module = self.add_virtual_module(self.vm_name)
-        self.add_input_signals_to_virtual_module(self.virtual_module)
-        self.virtual_module.add_clock_signal( "aclk", self.clock_pattern)
+        self.virtual_module.apply_view_template(self.VIEW_TEMPLATE, self.vm_option)
         self.virtual_module.add_output_signal("status"        , "VHDL_STRING"  , None, "NONE")
         self.virtual_module.add_output_signal("pipeline_level", "VHDL_SIGNED"  , 32,   0)
         self.virtual_module.add_output_signal("aw_status"     , "VHDL_STRING"  , None, "NONE")
@@ -276,24 +231,25 @@ class AXI4_Write_Template(Template):
         self.axi_b.add_display_signal(   f"[{self.vm_name}]b_status", status_option)
 
 class AXI4_Stream_Template(Template):
-    SIGNAL_MAP = [
-             {"name": "data"    , "signal": "data*"    , "option": {"signal": {"required": True }}},
-             {"name": "strb"    , "signal": "strb*"    , "option": {"signal": {"required": True }}},
-             {"name": "last"    , "signal": "last"     , "option": {"signal": {"required": True }}},
-             {"name": "valid"   , "signal": "valid"    , "option": {"signal": {"required": True }}},
-             {"name": "ready"   , "signal": "ready"    , "option": {"signal": {"required": True }}},
+    VIEW_TEMPLATE = [
+             {"name"  : "aclk", 
+              "clock" : {"signal": "{clock}", "option": {"signal":{"unique": True, "required":True}}}},
+             {"name": "data"    , "signal": "{prefix}data*"    , "option":{"signal":{"required":True }}},
+             {"name": "strb"    , "signal": "{prefix}strb*"    , "option":{"signal":{"required":True }}},
+             {"name": "last"    , "signal": "{prefix}last"     , "option":{"signal":{"required":True }}},
+             {"name": "valid"   , "signal": "{prefix}valid"    , "option":{"signal":{"required":True }}},
+             {"name": "ready"   , "signal": "{prefix}ready"    , "option":{"signal":{"required":True }}},
          ]
-    def __init__(self, parent_group, name, signal_pattern, clock_pattern=None, option=None):
-        super().__init__(parent_group, name, signal_pattern, None, option)
-        self.build_signal_map(self.SIGNAL_MAP, self.option)
-        self.clock_pattern = clock_pattern
+    def __init__(self, parent_group, name, prefix, clock, option=None):
+        new_option = View_Option({"signal": {"prefix": prefix, "clock": clock}}).merge(option)
+        super().__init__(parent_group, name, new_option)
         
     def build(self):
-        self.build_group()
+        self.root_group.apply_view_template(self.VIEW_TEMPLATE)
         self.vm_name        = self.name + "_vm"
+        self.vm_option      = self.root_group.child_option.merge(self.option)
         self.virtual_module = self.add_virtual_module(self.vm_name)
-        self.add_input_signals_to_virtual_module(self.virtual_module)
-        self.virtual_module.add_clock_signal( "aclk"  , self.clock_pattern)
+        self.virtual_module.apply_view_template(self.VIEW_TEMPLATE, self.vm_option)
         self.virtual_module.add_output_signal("status", "VHDL_STRING"  , None, "NONE")
         def gen_status(valid, ready, status):
             if   valid.is_high and ready.is_high:

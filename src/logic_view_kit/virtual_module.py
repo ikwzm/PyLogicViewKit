@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 ikwzm
 
-from .value_type import Value_Type
-from bisect      import bisect_right
-from collections import deque
+from .value_type  import Value_Type
+from .view_option import View_Option
+from bisect       import bisect_right
+from collections  import deque
 import heapq
 import re
 import inspect
@@ -600,15 +601,17 @@ class Virtual_Module:
         struct_as_group    = self.DEFAULT_OPTION["struct_as_group"]
         signal_is_required = self.DEFAULT_OPTION["required"]
         signal_is_unique   = self.DEFAULT_OPTION["unique"]
+        signal_pattern     = pattern
         if isinstance(option, dict):
             struct_as_group    = option.get("struct_as_group", struct_as_group   )
             signal_is_required = option.get("required"       , signal_is_required)
             signal_is_unique   = option.get("unique"         , signal_is_unique  )
-        signal_list = self.database.find_signals(pattern, None, struct_as_group)
+            signal_pattern     = pattern.format_map(option)
+        signal_list = self.database.find_signals(signal_pattern, None, struct_as_group)
         if signal_is_required is True and len(signal_list) == 0:
-            raise RuntimeError(f'No signal matched the specified pattern: "{pattern}"')
+            raise RuntimeError(f'No signal matched the specified pattern: "{signal_pattern}"')
         if signal_is_unique   is True and len(signal_list) >= 2:
-            raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{pattern}"')
+            raise RuntimeError(f'Multiple signals matched the specified signal pattern: "{signal_pattern}"')
         return signal_list
     
     def new_input_signal(self, name, pattern, option=None):
@@ -625,21 +628,30 @@ class Virtual_Module:
         return signal
 
     def add_input_signal(self, name, pattern, option=None):
-        signal = self.new_input_signal(name, pattern, option=None)
+        signal = self.new_input_signal(name, pattern, option)
         return self
 
     def new_clock_signal(self, name, pattern, option=None):
-        if self.clock_signal_pos >= 0:
-            raise RuntimeError(f'Multiple clock signals')
-        clock_signal_pos = len(self.input_signal_list)
-        clock_signal     = self.new_input_signal(name, pattern, option)
-        if clock_signal is None:
+        signal_list = self.find_input_signal_list(pattern, option)
+        if not signal_list:
             return None
-        self.clock_signal_pos = clock_signal_pos
+        path = "::".join(signal_list[0][0])
+        node = signal_list[0][1]
+        if "handle" not in node:
+            raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
+        if self.clock_signal_pos < 0:
+            clock_signal = self.Input_Signal(self, name, node, path, option)
+            self.clock_signal_pos = len(self.input_signal_list)
+            self.input_signal_list.append(clock_signal)
+        else:
+            clock_signal = self.input_signal_list[self.clock_signal_pos]
+            if clock_signal.handle != node["handle"]:
+                raise RuntimeError(f'Multiple clock signals')
+        self.signal_map[name] = clock_signal
         return clock_signal
 
     def add_clock_signal(self, name, pattern, option=None):
-        signal = self.new_clock_signal(name, pattern, option=None)
+        signal = self.new_clock_signal(name, pattern, option)
         return self
     
     def new_output_signal(self, name, value_type, value_width, init_value=None):
@@ -651,6 +663,33 @@ class Virtual_Module:
     def add_output_signal(self, name, value_type, value_width, init_value=None):
         signal = self.new_output_signal(name, value_type, value_width, init_value)
         return self
+
+    def apply_view_template(self, view_template, option=None):
+        def apply_group(group_template, group_option):
+            for item in group_template:
+                if "group" in item:
+                    child_template = item["group"]
+                    child_option   = group_option.merge(item.get("option"))
+                    apply_group(child_template, child_option)
+                    continue
+                if "signal" in item:
+                    signal_name    = item["name"]
+                    signal_pattern = item["signal"]
+                    signal_option  = group_option.merge(item.get("option")).get("signal")
+                    self.add_input_signal(signal_name, signal_pattern, signal_option)
+                    continue
+                if "clock" in item:
+                    clock_name     = item["name"]
+                    signal_option  = group_option.merge(item.get("option")).get("signal")
+                    clock_contents = item["clock"]
+                    if "signal" in clock_contents:
+                        clock_pattern = clock_contents["signal"]
+                        clock_option  = (View_Option(signal_option)
+                                             .merge(clock_contents.get("option")))
+                        self.add_clock_signal(clock_name, clock_pattern, clock_option)
+                        continue
+                raise RuntimeError(f"Invalid view_template item: {item}")
+        apply_group(view_template, View_Option(option))
 
     def new_process(self, process, user_argument=None):
         return self.Process(self, process, user_argument)
