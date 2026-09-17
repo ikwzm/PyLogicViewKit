@@ -631,13 +631,22 @@ class Virtual_Module:
         return self
 
     def new_clock_signal(self, name, pattern, option=None):
-        if self.clock_signal_pos >= 0:
-            raise RuntimeError(f'Multiple clock signals')
-        clock_signal_pos = len(self.input_signal_list)
-        clock_signal     = self.new_input_signal(name, pattern, option)
-        if clock_signal is None:
+        signal_list = self.find_input_signal_list(pattern, option)
+        if not signal_list:
             return None
-        self.clock_signal_pos = clock_signal_pos
+        path = "::".join(signal_list[0][0])
+        node = signal_list[0][1]
+        if "handle" not in node:
+            raise RuntimeError(f'The specified pattern does not match a signal: "{pattern}"')
+        if self.clock_signal_pos < 0:
+            clock_signal = self.Input_Signal(self, name, node, path, option)
+            self.clock_signal_pos = len(self.input_signal_list)
+            self.input_signal_list.append(clock_signal)
+        else:
+            clock_signal = self.input_signal_list[self.clock_signal_pos]
+            if clock_signal.handle != node["handle"]:
+                raise RuntimeError(f'Multiple clock signals')
+        self.signal_map[name] = clock_signal
         return clock_signal
 
     def add_clock_signal(self, name, pattern, option=None):
