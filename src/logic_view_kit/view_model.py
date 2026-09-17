@@ -194,6 +194,13 @@ class View_Model:
                 raise RuntimeError("View_Model is closed")
             return self.signal.get_wave(start_time, end_time)
 
+        def is_same_wave(self, clock):
+            if not isinstance(clock, self.model.View_Signal_Clock):
+                return False
+            if clock.signal.handle != self.signal.handle:
+                return False
+            return True
+
     class View_Virtual_Clock(View_Clock):
         DEFAULT_OPTION = {
             "display_name"    : None,
@@ -231,7 +238,15 @@ class View_Model:
             for time in self.get_edges(start_time, end_time):
                 yield (time                  , first_half_level )
                 yield (time + half_cycle_time, second_half_level)
-                    
+
+        def is_same_wave(self, clock):
+            if not isinstance(clock, self.model.View_Virtual_Clock):
+                return False
+            if clock.cycle_time  != self.cycle_time:
+                return False
+            if clock.offset_time != self.offset_time:
+                return False
+            return True
 
     class View_Group(View_Item):
         DEFAULT_OPTION = {
@@ -357,26 +372,28 @@ class View_Model:
         def add_signal_clock(self, pattern, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            if self.view_list.clock is not None:
-                raise RuntimeError("View_List already contains a clock")
             signal = self.get_actual_signal(pattern, option)
             clock  = self.model.View_Signal_Clock(signal, option)
             self.item_list.append(clock)
-            self.view_list.clock = clock
             self.signal_map[clock.name] = clock
+            if self.view_list.clock is None:
+                self.view_list.clock = clock
+            elif not self.view_list.clock.is_same_wave(clock):
+                raise RuntimeError("View_List already contains a clock")
             return self
             
         def add_virtual_clock(self, name, cycle_time, offset_time, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
-            if self.view_list.clock is not None:
-                raise RuntimeError("View_List already contains a clock")
             cycle  = self.model.parse_time(cycle_time)
             offset = self.model.parse_time(offset_time)
             clock  = self.model.View_Virtual_Clock(self.view_list, name, cycle, offset, self, option)
             self.item_list.append(clock)
-            self.view_list.clock = clock
             self.signal_map[clock.name] = clock
+            if self.view_list.clock is None:
+                self.view_list.clock = clock
+            elif not self.view_list.clock.is_same_wave(clock):
+                raise RuntimeError("View_List already contains a clock")
             return self
             
         def add_group(self, name, option=None):
