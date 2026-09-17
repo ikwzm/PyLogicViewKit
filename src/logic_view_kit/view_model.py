@@ -399,10 +399,51 @@ class View_Model:
         def add_group(self, name, option=None):
             if self.closed is True:
                 raise RuntimeError("View_Group is closed")
+            if isinstance(option, dict) and "template" in option:
+                view_template = option.pop("template")
+            else:
+                view_template = None
             group = self.model.View_Group(self.view_list, name, self, option)
+            if view_template is not None:
+                group.applay_view_template(view_template)
             self.item_list.append(group)
             self.group_map[group.name] = group
             return group
+
+        def apply_view_template(self, view_template):
+            def apply_group(group, group_template):
+                for item in group_template:
+                    if "group" in item:
+                        group_name     = item["name"]
+                        group_option   = View_Option(item.get("option"))
+                        child_template = item["group"]
+                        child_group    = group.add_group(group_name, group_option)
+                        apply_group(child_group, child_template)
+                        continue
+                    if "signal" in item:
+                        signal_name    = item["name"]
+                        signal_option  = View_Option(item.get("option"))
+                        signal_pattern = item["signal"]
+                        group.add_signals(signal_pattern, signal_option)
+                        continue
+                    if "clock" in item:
+                        clock_name     = item["name"]
+                        clock_option   = View_Option(item.get("option"))
+                        clock_contents = item["clock"]
+                        if "signal" in clock_contents:
+                            clock_pattern = clock_contents["signal"]
+                            clock_option  = clock_option.merge(clock_contents.get("option"))
+                            group.add_signal_clock(clock_pattern, clock_option)
+                            continue
+                        if "virtual" in clock_contents:
+                            clock_pattern = clock_contents["virtual"]
+                            cycle_time    = clock_pattern["cycle_time"]
+                            offset_time   = clock_pattern.get("offset_time", "0 ns")
+                            clock_option  = clock_option.merge(clock_contents.get("option"))
+                            group.add_virtual_clock(clock_name, cycle_time, offset_time, clock_option)
+                            continue
+                    raise RuntimeError(f"Invalid view_template item: {item}")
+            apply_group(self, view_template)
 
         def get_group(self, path):
             if not path:
@@ -481,8 +522,20 @@ class View_Model:
         def add_group(self, name, option=None):
             if self.root_group is None:
                 raise RuntimeError("View_List is closed")
+            if isinstance(option, dict) and "template" in option:
+                view_template = option.pop("template")
+            else:
+                view_template = None
             group_option = self.group_option.merge(option)
-            return self.root_group.add_group(name, group_option)
+            group = self.root_group.add_group(name, group_option)
+            if view_template is not None:
+                group.apply_view_template(view_template)
+            return group
+
+        def apply_view_template(self, view_template):
+            if self.root_group is None:
+                raise RuntimeError("View_List is closed")
+            self.root_group.apply_view_template(view_template)
 
         def add_signal_clock(self, pattern, option=None):
             if self.root_group is None:
@@ -747,6 +800,11 @@ class View_Model:
         if self.closed is True:
             raise RuntimeError("View_Model is closed")
         return self.curr_view_list.add_group(name, option)
+
+    def apply_view_template(self, view_template):
+        if self.closed is True:
+            raise RuntimeError("View_Model is closed")
+        return self.curr_view_list.apply_view_template(view_template)
 
     def add_signal_clock(self, pattern, option=None):
         if self.closed is True:
