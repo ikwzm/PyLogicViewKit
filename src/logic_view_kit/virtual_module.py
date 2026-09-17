@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: BSD-2-Clause
 # Copyright (c) 2026 ikwzm
 
-from .value_type import Value_Type
-from bisect      import bisect_right
-from collections import deque
+from .value_type  import Value_Type
+from .view_option import View_Option
+from bisect       import bisect_right
+from collections  import deque
 import heapq
 import re
 import inspect
@@ -662,6 +663,33 @@ class Virtual_Module:
     def add_output_signal(self, name, value_type, value_width, init_value=None):
         signal = self.new_output_signal(name, value_type, value_width, init_value)
         return self
+
+    def apply_view_template(self, view_template, option=None):
+        def apply_group(group_template, group_option):
+            for item in group_template:
+                if "group" in item:
+                    child_template = item["group"]
+                    child_option   = group_option.merge(item.get("option"))
+                    apply_group(child_template, child_option)
+                    continue
+                if "signal" in item:
+                    signal_name    = item["name"]
+                    signal_pattern = item["signal"]
+                    signal_option  = group_option.merge(item.get("option")).get("signal")
+                    self.add_input_signal(signal_name, signal_pattern, signal_option)
+                    continue
+                if "clock" in item:
+                    clock_name     = item["name"]
+                    signal_option  = group_option.merge(item.get("option")).get("signal")
+                    clock_contents = item["clock"]
+                    if "signal" in clock_contents:
+                        clock_pattern = clock_contents["signal"]
+                        clock_option  = (View_Option(signal_option)
+                                             .merge(clock_contents.get("option")))
+                        self.add_clock_signal(clock_name, clock_pattern, clock_option)
+                        continue
+                raise RuntimeError(f"Invalid view_template item: {item}")
+        apply_group(view_template, View_Option(option))
 
     def new_process(self, process, user_argument=None):
         return self.Process(self, process, user_argument)
