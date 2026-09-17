@@ -25,6 +25,7 @@ Files
 
 * `axi4_m2s_tb_32_32_256_sync.fst` — Example waveform file used by PyLogicViewKit.
 * `axi4_m2s_tb_32_32_256_sync.py` — Python scripts for defining the waveform view model.
+* `axi4_template.py`              — Python scripts for AXI4_Read/AXI4_Write/AXI4_Stream waveform template.
 * `Readme.md` — This document.
 
 ### Files Required to Rerun the Simulation

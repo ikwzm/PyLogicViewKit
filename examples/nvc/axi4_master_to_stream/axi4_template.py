@@ -15,21 +15,6 @@ class Template:
     def add_virtual_module(self, vm_name):
         return self.root_group.model.add_virtual_module(vm_name)
     
-    def add_input_signals_to_virtual_module(self, virtual_module):
-        def add_input_singals(template, group_option):
-            for item in template:
-                if "group" in item:
-                    child_contents = item["group"]
-                    group_option   = group_option.merge(item.get("option"))
-                    add_input_singals(child_contents, group_option)
-                if "signal" in item:
-                    signal_name    = item["name"]
-                    signal_pattern = item["signal"]
-                    signal_option  = group_option.merge(item.get("option")).get("signal")
-                    virtual_module.add_input_signal(signal_name, signal_pattern, signal_option)
-        option = self.root_group.child_option.merge(self.option)
-        add_input_singals(self.template, option)
-                    
 class AXI4_Read_Template(Template):
     VIEW_TEMPLATE = [
         {"name"  : "aclk",
