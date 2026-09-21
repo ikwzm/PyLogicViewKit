@@ -113,7 +113,7 @@ class WaveformSignals(QWidget):
 
     def update_visible_row_count(self):
         height    = self.signal_name_column.viewport().height()
-        row_count = height // self.signal_row_height
+        row_count = (height + self.signal_row_height - 1) // self.signal_row_height
         self.signal_name_column.set_visible_row_count(row_count)
         self.signal_value_column.set_visible_row_count(row_count)
         self.signal_waveform_column.set_visible_row_count(row_count)
