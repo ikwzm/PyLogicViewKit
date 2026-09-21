@@ -48,6 +48,7 @@ class WaveformSignals(QWidget):
         self.signal_scrollbar_width = self.parent.signal_scrollbar_width
         self.visible_row_count      = self.parent.visible_row_count
 
+        self.splitter               = QSplitter(Qt.Horizontal, self)
         self.signal_name_column     = self.SignalNameColumn(self)
         self.signal_value_column    = self.SignalValueColumn(self)
         self.signal_waveform_column = self.SignalWaveformColumn(self)
@@ -55,48 +56,47 @@ class WaveformSignals(QWidget):
 
         self.signal_scrollbar.setFixedWidth(self.signal_scrollbar_width)
 
-        splitter = QSplitter(Qt.Horizontal, self)
-        splitter.setHandleWidth(3)
+        self.splitter.setHandleWidth(3)
 
-        splitter.addWidget(self.signal_name_column)
-        splitter.addWidget(self.signal_value_column)
-        splitter.addWidget(self.signal_waveform_column)
+        self.splitter.addWidget(self.signal_name_column)
+        self.splitter.addWidget(self.signal_value_column)
+        self.splitter.addWidget(self.signal_waveform_column)
 
-        splitter.setSizes([self.signal_name_width ,
-                           self.signal_value_width,
-                           1000,
-                         ])
-        splitter.setStretchFactor(2,1)
-        splitter.splitterMoved.connect(self._splitter_moved)
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                               1000,
+                              ])
+        self.splitter.setStretchFactor(2,1)
+        self.splitter.splitterMoved.connect(self._splitter_moved)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        layout.addWidget(splitter)
+        layout.addWidget(self.splitter)
         layout.addWidget(self.signal_scrollbar)
 
         self.signal_name_column.view_list_changed.connect(self._view_list_changed)
         self.signal_scrollbar.valueChanged.connect(self._signal_scrollbar_value_changed)
 
-        # 注) すぐに self.signal_name_column の描画領域(viewport)の設定が行われるとは限ら
-        # ないので、ここで self.update_visible_row_count() を実行するのではなく、
-        # 現在実行中の処理がすべて終了してから self.update_visible_row_count() を実行する.
+        # 注) すぐに self.signal_name_column、の描画領域(viewport)の設定や、
+        # self.splitter の各サイズの設定が行われるとは限らないので、
+        # ここで self.update_view() を実行するのではなく、
+        # 現在実行中の処理がすべて終了してから self.update_view() を実行する.
         # これは self.resizeEvent() の実行中でも同様
-        # self.update_visible_row_count()
-        QTimer.singleShot(0, self.update_visible_row_count)
+        # self.update_view()
+        QTimer.singleShot(0, self.update_view)
 
     def update_signal_scrollbar(self):
         self.signal_scrollbar.update_scroll_range()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.parent.request_update_waveform_geometry()
-        QTimer.singleShot(0, self.update_visible_row_count)
+        QTimer.singleShot(0, self.update_view)
 
     def _splitter_moved(self, pos, index):
-        self.parent.request_update_waveform_geometry()
-        
+        self.update_column_widths()
+
     def _view_list_changed(self):
         self.update_visible_row_count()
         self.signal_name_column.refresh()
@@ -106,6 +106,10 @@ class WaveformSignals(QWidget):
     def _signal_scrollbar_value_changed(self, value):
         self.set_row_scroll_value(value)
 
+    def update_view(self):
+        self.update_visible_row_count()
+        self.update_column_widths()
+
     def update_visible_row_count(self):
         height    = self.signal_name_column.viewport().height()
         row_count = height // self.signal_row_height
@@ -113,6 +117,18 @@ class WaveformSignals(QWidget):
         self.signal_value_column.set_visible_row_count(row_count)
         self.signal_waveform_column.set_visible_row_count(row_count)
         self.signal_scrollbar.set_visible_row_count(row_count)
+
+    def update_column_widths(self):
+        sizes = self.splitter.sizes()
+        self.parent.change_column_widths(sizes[0], sizes[1], sizes[2])
+        
+    def set_column_widths(self, name_width, value_width, waveform_width):
+        self.signal_name_width  = name_width
+        self.signal_value_width = value_width
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                                waveform_width,
+                              ])
 
     def set_row_scroll_value(self, value):
         self.signal_name_column.set_row_scroll_value(value)
@@ -760,6 +776,9 @@ class WaveformArea(QWidget):
         self.cursor_widget.raise_()
         self.cursor_widget.show()
 
+    def change_column_widths(self, name_width, value_width, waveform_width):
+        self.parent.change_column_widths(name_width, value_width, waveform_width)
+        
     def request_update_waveform_geometry(self):
         if self.update_cursor_geometry_pending:
             return
@@ -768,6 +787,13 @@ class WaveformArea(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.request_update_waveform_geometry()
+
+    def set_column_widths(self, name_width, value_width, waveform_width):
+        self.signal_name_width  = name_width
+        self.signal_value_width = value_width
+        for view_list in self.waveform_list:
+            view_list.set_column_widths(name_width, value_width, waveform_width)
         self.request_update_waveform_geometry()
 
     def set_time_range(self, start_time, end_time):
@@ -1035,16 +1061,15 @@ class HeaderArea(QWidget):
         self.signal_scrollbar_width = self.parent.signal_scrollbar_width
         self.height                 = self.view_model.get_option("header_height",
                                       DEFAULT_VALUES["header_height"])
+        self.splitter               = QSplitter(Qt.Horizontal, self)
         self.signal_name_column     = QLabel("Signal Name", self)
         self.signal_value_column    = QLabel("Value", self)
         self.time_ruler             = self.TimeRuler(self)
         self.padding_space          = QLabel("", self)
 
-        self.signal_name_column.setFixedWidth(self.signal_name_width)
         self.signal_name_column.setFixedHeight(self.height)
         self.signal_name_column.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.signal_value_column.setFixedWidth(self.signal_value_width)
         self.signal_value_column.setFixedHeight(self.height)
         self.signal_value_column.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -1059,13 +1084,23 @@ class HeaderArea(QWidget):
             palette.setColor(QPalette.ColorRole.WindowText, QColor(foreground_color))
             column.setPalette(palette)
 
+        self.splitter.setHandleWidth(3)
+
+        self.splitter.addWidget(self.signal_name_column)
+        self.splitter.addWidget(self.signal_value_column)
+        self.splitter.addWidget(self.time_ruler)
+
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                                1000,
+                             ])
+        self.splitter.setStretchFactor(2,1)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        layout.addWidget(self.signal_name_column)
-        layout.addWidget(self.signal_value_column)
-        layout.addWidget(self.time_ruler, 1)
+        layout.addWidget(self.splitter)
 
     def set_time_range(self, start_time, end_time):
         self.time_ruler.set_time_range(start_time, end_time)
@@ -1073,6 +1108,13 @@ class HeaderArea(QWidget):
     def set_current_time(self, current_time):
         pass
 
+    def set_column_widths(self, name_width, value_width, waveform_width):
+        self.signal_name_width  = name_width
+        self.signal_value_width = value_width
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                                waveform_width + self.signal_scrollbar_width,
+                              ])
     class TimeRuler(QWidget):
         "現在表示している時間範囲を表示する Widget"
         def __init__(self, parent=None):
@@ -1169,15 +1211,14 @@ class FooterArea(QWidget):
         self.signal_scrollbar_width = self.parent.signal_scrollbar_width
         self.height                 = self.view_model.get_option("footer_height",
                                       DEFAULT_VALUES["footer_height"])
+        self.splitter               = QSplitter(Qt.Horizontal, self)
         self.signal_name_scrollbar  = self.SignalNameScrollBar(self)
         self.signal_value_scrollbar = self.SignalValueScrollBar(self)
         self.time_range_scrollbar   = self.TimeRangeScrollBar(self)
         self.padding_space          = QLabel("", self)
 
-        self.signal_name_scrollbar.setFixedWidth(self.signal_name_width)
         self.signal_name_scrollbar.setFixedHeight(self.height)
 
-        self.signal_value_scrollbar.setFixedWidth(self.signal_value_width)
         self.signal_value_scrollbar.setFixedHeight(self.height)
 
         self.time_range_scrollbar.setFixedHeight(self.height)
@@ -1185,14 +1226,32 @@ class FooterArea(QWidget):
         self.padding_space.setFixedWidth(self.signal_scrollbar_width)
         self.padding_space.setFixedHeight(self.height)
 
+        self.splitter.setHandleWidth(3)
+
+        self.splitter.addWidget(self.signal_name_scrollbar)
+        self.splitter.addWidget(self.signal_value_scrollbar)
+        self.splitter.addWidget(self.time_range_scrollbar)
+
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                                1000,
+                             ])
+        self.splitter.setStretchFactor(2,1)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        layout.addWidget(self.signal_name_scrollbar)
-        layout.addWidget(self.signal_value_scrollbar)
-        layout.addWidget(self.time_range_scrollbar, 1)
+        layout.addWidget(self.splitter)
         layout.addWidget(self.padding_space)
+
+    def set_column_widths(self, name_width, value_width, waveform_width):
+        self.signal_name_width  = name_width
+        self.signal_value_width = value_width
+        self.splitter.setSizes([self.signal_name_width ,
+                                self.signal_value_width,
+                                waveform_width,
+                              ])
 
     def set_time_range(self, start_time, end_time):
         self.time_range_scrollbar.set_time_range(start_time, end_time)
@@ -1297,6 +1356,16 @@ class WaveformViewer(QMainWindow):
         layout.addWidget(self.header_area         , 0)
         layout.addWidget(self.signal_waveform_area, 0)
         layout.addWidget(self.footer_area         , 0)
+
+    def change_column_widths(self, name_width, value_width, waveform_width):
+        self.set_column_widths(name_width, value_width, waveform_width)
+        
+    def set_column_widths(self, name_width, value_width, waveform_width):
+        self.signal_name_width  = name_width
+        self.signal_value_width = value_width
+        self.header_area.set_column_widths(name_width, value_width, waveform_width)
+        self.signal_waveform_area.set_column_widths(name_width, value_width, waveform_width)
+        self.footer_area.set_column_widths(name_width, value_width, waveform_width)
 
     def set_time_range(self, start_time, end_time):
         self.start_time = start_time
