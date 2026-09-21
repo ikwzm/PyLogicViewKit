@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QSplitter,
     QScrollBar,
     QHeaderView,
     QLabel,
@@ -52,17 +53,27 @@ class WaveformSignals(QWidget):
         self.signal_waveform_column = self.SignalWaveformColumn(self)
         self.signal_scrollbar       = self.SignalScrollBar(self)
 
-        self.signal_name_column.setFixedWidth(self.signal_name_width)
-        self.signal_value_column.setFixedWidth(self.signal_value_width)
         self.signal_scrollbar.setFixedWidth(self.signal_scrollbar_width)
+
+        splitter = QSplitter(Qt.Horizontal, self)
+        splitter.setHandleWidth(3)
+
+        splitter.addWidget(self.signal_name_column)
+        splitter.addWidget(self.signal_value_column)
+        splitter.addWidget(self.signal_waveform_column)
+
+        splitter.setSizes([self.signal_name_width ,
+                           self.signal_value_width,
+                           1000,
+                         ])
+        splitter.setStretchFactor(2,1)
+        splitter.splitterMoved.connect(self._splitter_moved)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        layout.addWidget(self.signal_name_column)
-        layout.addWidget(self.signal_value_column)
-        layout.addWidget(self.signal_waveform_column, 1)
+        layout.addWidget(splitter)
         layout.addWidget(self.signal_scrollbar)
 
         self.signal_name_column.view_list_changed.connect(self._view_list_changed)
@@ -80,8 +91,12 @@ class WaveformSignals(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.parent.request_update_waveform_geometry()
         QTimer.singleShot(0, self.update_visible_row_count)
 
+    def _splitter_moved(self, pos, index):
+        self.parent.request_update_waveform_geometry()
+        
     def _view_list_changed(self):
         self.update_visible_row_count()
         self.signal_name_column.refresh()
@@ -708,6 +723,7 @@ class WaveformArea(QWidget):
         self.visible_row_count      = self.parent.visible_row_count
         self.signal_row_height      = self.parent.signal_row_height
         self.waveform_list          = []
+        self.update_cursor_geometry_pending = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -716,7 +732,7 @@ class WaveformArea(QWidget):
         for view_list in self.view_model.view_lists():
             waveform = WaveformSignals(view_list, self)
             self.waveform_list.append(waveform)
-            layout.addWidget(waveform, 0)
+            layout.addWidget(waveform, 1)
 
         self.marker_widget = self.MarkerWidget(self)
         self.marker_widget.show()
@@ -724,9 +740,11 @@ class WaveformArea(QWidget):
         self.cursor_widget = self.CursorWidget(self)
         self.cursor_widget.show()
         self.cursor_widget.raise_()
-        QTimer.singleShot(0, self.update_cursor_geometry)
+
+        self.request_update_waveform_geometry()
 
     def update_cursor_geometry(self):
+        self.update_cursor_geometry_pending = False
         if not self.waveform_list:
             self.cursor_widget.hide()
             return
@@ -742,9 +760,15 @@ class WaveformArea(QWidget):
         self.cursor_widget.raise_()
         self.cursor_widget.show()
 
+    def request_update_waveform_geometry(self):
+        if self.update_cursor_geometry_pending:
+            return
+        self.update_cursor_geometry_pending = True
+        QTimer.singleShot(0, self.update_cursor_geometry)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.update_cursor_geometry()
+        self.request_update_waveform_geometry()
 
     def set_time_range(self, start_time, end_time):
         for view_list in self.waveform_list:
