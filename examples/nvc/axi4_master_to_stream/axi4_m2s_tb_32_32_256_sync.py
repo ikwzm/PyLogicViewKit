@@ -4,7 +4,7 @@ from axi4_template import AXI4_Stream_Template
 
 default_color = {"name":  {"background": "blue", "foreground": "white"},
                  "value": {"background": "blue", "foreground": "white"}}
-view_model   = View_Model('axi4_m2s_tb_32_32_256_sync.fst', {"color": default_color})
+view_model   = View_Model('axi4_m2s_tb_32_32_256_sync.fst', {"display_rows": 50, "color": default_color})
 view_model.add_signal_clock("*::tb::i_clk", {"display_wave": True})
 
 c_axi   = view_model.add_group("c_axi")
@@ -16,7 +16,9 @@ c_axi_w.build()
 i_axi   = AXI4_Read_Template(  view_model, "i_axi" , "*::tb::dut::i_", "*::tb::i_clk")
 i_axi.build()
 
-o_axis  = AXI4_Stream_Template(view_model, "o_axis", "*::tb::dut::o_", "*::tb::i_clk")
+o_view_list = view_model.add_view_list("o", {"display_rows": 7})
+o_view_list.add_signal_clock("*::tb::o_clk", {"display_wave": True})
+o_axis  = AXI4_Stream_Template(o_view_list, "o_axis", "*::tb::dut::o_", "*::tb::o_clk")
 o_axis.build()
 
 report   = (view_model.add_group("report", {"signal":{"unique": True}})

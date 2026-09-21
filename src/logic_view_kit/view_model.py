@@ -683,6 +683,7 @@ class View_Model:
     INHERITABLE_OPTION = {"color" : {"name": True, "value": True, "wave": True},
                           "shape" : True,
                           "signal": True,
+                          "display_rows": True,
                          }
     
     def __init__(self, database, option=None):
