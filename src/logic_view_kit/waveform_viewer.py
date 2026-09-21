@@ -764,7 +764,7 @@ class WaveformArea(QWidget):
         self.cursor_widget.show()
         self.cursor_widget.raise_()
 
-        self.adjust_visible_row_counts()
+        self.request_adjust_visible_row_counts()
         self.request_update_waveform_geometry()
 
     def _splitter_moved(self):
@@ -785,45 +785,46 @@ class WaveformArea(QWidget):
         self.splitter.setSizes(sizes)
 
 
+    def request_adjust_visible_row_counts(self):
+        QTimer.singleShot(0, self.adjust_visible_row_counts)
+        
     def adjust_visible_row_counts(self):
         if not self.waveform_list:
             return
         waveform_count = len(self.waveform_list)
-        # QSplitter のハンドルが占める高さを除く
-        available_height = self.splitter.height() - (self.splitter.handleWidth() * (waveform_count - 1))
-
-        row_counts = [max(1, waveform.request_row_count) for waveform in self.waveform_list]
+        # 可能な高さを求める。ただし、QSplitter のハンドルが占める高さを除く。
+        available_height = self.height() - (self.splitter.handleWidth() * (waveform_count - 1))
+        # WaveformSignals の各々の行数をリストにする。初期値は各々の request_row_count。
+        row_count_list = [max(1, waveform.request_row_count) for waveform in self.waveform_list]
 
         def required_height():
             return sum(
                 waveform.signal_row_height * row_count
                 for waveform, row_count
-                in zip(self.waveform_list, row_counts)
+                in zip(self.waveform_list, row_count_list)
             )
-
-        # 収まるまで行数を減らす
+        # 収まるまで row_count_list のどれかの行数を減らす。
         while required_height() > available_height:
             candidates = [
                 index
-                for index, row_count in enumerate(row_counts)
+                for index, row_count in enumerate(row_count_list)
                 if row_count > 1
             ]
             if not candidates:
                 break
-            # 現在の表示高さが大きい WaveformSignals から減らす
+            # 現在の表示高さが大きい WaveformSignals から減らす。
             index = max(
                 candidates,
                 key=lambda index:
                     self.waveform_list[index].signal_row_height
-                    * row_counts[index]
+                    * row_count_list[index]
             )
-            row_counts[index] -= 1
+            row_count_list[index] -= 1
 
         # QSplitter のサイズに反映
-        self.splitter.setSizes([
-            waveform.signal_row_height * row_counts[index]
-            for waveform in self.waveform_list
-        ])             
+        sizes = ([waveform.signal_row_height * row_count_list[index]
+                  for index, waveform in enumerate(self.waveform_list)])
+        self.splitter.setSizes(sizes)
 
     def update_cursor_geometry(self):
         self.update_cursor_geometry_pending = False
@@ -853,6 +854,7 @@ class WaveformArea(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.request_adjust_visible_row_counts()
         self.request_update_waveform_geometry()
 
     def set_column_widths(self, name_width, value_width, waveform_width):
