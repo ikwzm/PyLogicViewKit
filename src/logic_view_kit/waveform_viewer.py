@@ -49,6 +49,8 @@ class WaveformSignals(QWidget):
         self.request_row_count      = self.view_list.get_option("display_rows",
                                                                 self.parent.visible_row_count)
         self.visible_row_count      = self.request_row_count
+        self.selected_row           = None
+        self.update_selected_row_running = False
         self.splitter               = QSplitter(Qt.Horizontal, self)
         self.signal_name_column     = self.SignalNameColumn(self)
         self.signal_value_column    = self.SignalValueColumn(self)
@@ -131,6 +133,18 @@ class WaveformSignals(QWidget):
                                 waveform_width,
                               ])
 
+    def update_selected_row(self, row):
+        if self.update_selected_row_running:
+            return
+        self.update_selected_row_running = True
+        try:
+            self.selected_row = row
+            self.signal_name_column.selectRow(row)
+            self.signal_value_column.selectRow(row)
+            self.signal_waveform_column.set_selected_row(row)
+        finally:
+            self.update_selected_row_running = False
+
     def set_row_scroll_value(self, value):
         self.signal_name_column.set_row_scroll_value(value)
         self.signal_value_column.set_row_scroll_value(value)
@@ -177,6 +191,8 @@ class WaveformSignals(QWidget):
             v_header.setSectionResizeMode(QHeaderView.Fixed)
             v_header.setDefaultSectionSize(self.row_height)
             self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+            self.selectionModel().selectionChanged.connect(self._selection_changed)
 
         def mouseDoubleClickEvent(self, event):
             index = self.indexAt(event.position().toPoint())
@@ -226,6 +242,14 @@ class WaveformSignals(QWidget):
             scrollbar = self.verticalScrollBar()
             if scrollbar.value() != value:
                 scrollbar.setValue(value)
+
+        def _selection_changed(self, selected, deselected):
+            if self.parent.update_selected_row_running:
+                return
+            indexes = selected.indexes()
+            if not indexes:
+                return
+            self.parent.update_selected_row(indexes[0].row())
 
         class SignalNameModel(QAbstractTableModel):
             SIGNAL_COLUMN = 0
@@ -317,6 +341,8 @@ class WaveformSignals(QWidget):
             v_header.setDefaultSectionSize(self.row_height)
             self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+            self.selectionModel().selectionChanged.connect(self._selection_changed)
+
         def refresh(self):
             self.table_model.refresh()
 
@@ -330,6 +356,14 @@ class WaveformSignals(QWidget):
             scrollbar = self.verticalScrollBar()
             if scrollbar.value() != value:
                 scrollbar.setValue(value)
+
+        def _selection_changed(self, selected, deselected):
+            if self.parent.update_selected_row_running:
+                return
+            indexes = selected.indexes()
+            if not indexes:
+                return
+            self.parent.update_selected_row(indexes[0].row())
 
         def set_current_time(self, current_time):
             self.table_model.set_current_time(current_time)
@@ -433,6 +467,7 @@ class WaveformSignals(QWidget):
             self.end_time           = self.time_controller.end_time
             self.visible_row_count  = self.parent.visible_row_count
             self.row_scroll_value   = 0
+            self.selected_row       = 0
             self.background_color   = self.view_list.background_color
 
         def refresh(self):
@@ -458,6 +493,12 @@ class WaveformSignals(QWidget):
             if self.row_scroll_value == value:
                 return
             self.row_scroll_value = value
+            self.update()
+
+        def set_selected_row(self, row):
+            if self.selected_row == row:
+                return
+            self.selected_row = row
             self.update()
 
         def time_to_x(self, time):
@@ -489,6 +530,7 @@ class WaveformSignals(QWidget):
             height       = self.height()
             row_height   = self.parent.signal_row_height
             first_row    = self.row_scroll_value
+            selected_row = self.selected_row
             row_count    = self.view_list.row_count()
             visible_rows = self.visible_row_count
 
@@ -504,7 +546,7 @@ class WaveformSignals(QWidget):
                     if color is not None:
                         painter.fillRect(rect, QColor(color))
 
-            def draw_group_no_signal(group, y):
+            def draw_group_no_signal(group, y, selected):
                 top    = y + 5
                 bottom = y + row_height - 5
                 height = bottom - top
@@ -513,13 +555,13 @@ class WaveformSignals(QWidget):
                 if color is not None:
                     painter.fillRect(rect, QColor(color))
                 
-            def draw_group(group, y):
+            def draw_group(group, y, selected):
                 if group.display_signal is not None:
-                    draw_signal(group.display_signal, y)
+                    draw_signal(group.display_signal, y, selected)
                 else:
-                    draw_group_no_signal(group, y)
+                    draw_group_no_signal(group, y, selected)
                 
-            def draw_signal(signal, y):
+            def draw_signal(signal, y, selected):
                 top    = y              + signal.margin_top_height
                 bottom = y + row_height - signal.margin_bottom_height
                 height = bottom - top
@@ -527,6 +569,10 @@ class WaveformSignals(QWidget):
                 edge_slope_width     = signal.edge_slope_width
                 edge_slope_threshold = edge_slope_width*3
                 edge_slope_enabled   = (edge_slope_width != 0)
+                draw_signal_color    = QColor(signal.wave_signal_color)
+                draw_signal_width    = (signal.selected_line_width if selected else
+                                        signal.draw_line_width)
+                draw_signal_pen      = QPen(draw_signal_color, draw_signal_width)
 
                 def draw_signal_value(signal, value, left, width):
                     value_text   = str(signal.format_value(value))
@@ -545,8 +591,7 @@ class WaveformSignals(QWidget):
                 def draw_signal_logic(signal, curr_value, prev_value, left, right):
                     nonlocal edge_slope_enabled
                     width = right - left
-                    pen   = QPen(QColor(signal.wave_signal_color))
-                    painter.setPen(pen)
+                    painter.setPen(draw_signal_pen)
                     if curr_value in ("1", "h"):
                         curr_level = top
                     else:
@@ -569,13 +614,12 @@ class WaveformSignals(QWidget):
                 def draw_signal_bus(signal, curr_value, prev_value, left, right):
                     width            = right - left
                     background_color = signal.wave_background_color
-                    signal_pen       = QPen(QColor(signal.wave_signal_color))
                     if curr_value != prev_value and edge_slope_enabled and width > edge_slope_threshold:
                         draw_left  = left  + edge_slope_width
                         draw_width = right - draw_left
                         draw_rect  = QRect(draw_left, top, draw_width, height)
                         painter.fillRect(draw_rect, QColor(background_color))
-                        painter.setPen(signal_pen)
+                        painter.setPen(draw_signal_pen)
                         painter.drawLine(left, top   , draw_left , bottom)
                         painter.drawLine(left, bottom, draw_left , top   )
                     else:
@@ -583,7 +627,7 @@ class WaveformSignals(QWidget):
                         draw_width = right - left
                         draw_rect  = QRect(draw_left, top, draw_width, height)
                         painter.fillRect(draw_rect, QColor(background_color))
-                        painter.setPen(signal_pen)
+                        painter.setPen(draw_signal_pen)
                     painter.drawLine(draw_left, top   , right, top   )
                     painter.drawLine(draw_left, bottom, right, bottom)
                     draw_signal_value(signal, curr_value, draw_left, draw_width)
@@ -600,6 +644,9 @@ class WaveformSignals(QWidget):
                         foreground_color = signal.wave_value_color
                     draw_rect    = QRect(left, top, width, height)
                     painter.fillRect(draw_rect, QColor(background_color))
+                    if selected:
+                        painter.setPen(QPen(QColor("white")))
+                        painter.drawRect(draw_rect)
                     font_metrics = painter.fontMetrics()
                     value_rect   = font_metrics.tightBoundingRect(value_text)
                     left_margin  = 2
@@ -631,7 +678,7 @@ class WaveformSignals(QWidget):
                     curr_x = self.time_to_x(curr_time)
                     next_x = self.time_to_x(next_time)
                     if   signal.wave_text_color is not None:
-                        draw_signal_text(signal, curr_value, prev_value, curr_x, next_x)
+                        draw_signal_text( signal, curr_value, prev_value, curr_x, next_x)
                     elif signal.is_logic:
                         draw_signal_logic(signal, curr_value, prev_value, curr_x, next_x)
                     else:
@@ -644,11 +691,11 @@ class WaveformSignals(QWidget):
                     curr_x = self.time_to_x(curr_time)
                     next_x = self.time_to_x(end_time)
                     if   signal.wave_text_color is not None:
-                        draw_signal_text(signal, curr_value, prev_value, curr_x, next_x)
+                        draw_signal_text( signal, curr_value, prev_value, curr_x, next_x)
                     elif signal.is_logic:
                         draw_signal_logic(signal, curr_value, prev_value, curr_x, next_x)
                     else:
-                        draw_signal_bus(signal, curr_value, prev_value, curr_x, next_x)
+                        draw_signal_bus(  signal, curr_value, prev_value, curr_x, next_x)
                 
             def draw_foreground():
                 for i in range(visible_rows):
@@ -658,13 +705,13 @@ class WaveformSignals(QWidget):
                     y     = i * row_height
                     item  = self.view_list.row_to_item(row)
                     if self.view_list.item_is_group(item):
-                        draw_group(item, y)
+                        draw_group( item, y, (row == selected_row))
                         continue
                     if self.view_list.item_is_signal(item):
-                        draw_signal(item, y)
+                        draw_signal(item, y, (row == selected_row))
                         continue
                     if self.view_list.item_is_clock(item):
-                        draw_signal(item, y)
+                        draw_signal(item, y, (row == selected_row))
                         continue
 
             def draw_simple_grid(tick_count):
