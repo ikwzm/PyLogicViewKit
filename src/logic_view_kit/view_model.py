@@ -42,6 +42,9 @@ class View_Model:
             self.edge_slope_width              = self.shape_option.get("edge_slope_width"    , 0)
             self.margin_top_height             = self.shape_option.get("margin_top_height"   , 5)
             self.margin_bottom_height          = self.shape_option.get("margin_bottom_height", 5)
+            self.draw_line_width               = self.shape_option.get("draw_line_width"     , 1)
+            self.selected_line_width           = self.shape_option.get("selected_line_width" ,
+                                                                        self.draw_line_width + 1)
             
         def get_color(self, key, prop):
             return self.color_option.get(key,{}).get(prop)
@@ -655,6 +658,7 @@ class View_Model:
         "end_time"           : None  ,
         "time_quantum"       : "1 ns",
         "shape"              : {
+            "draw_line_width"      : 1 ,
             "edge_slope_width"     : 3 ,
             "margin_top_height"    : 5 ,
             "margin_bottom_height" : 5 ,
@@ -669,10 +673,10 @@ class View_Model:
             "name"      : {"background": "black", "foreground"   : "white"},
             "value"     : {"background": "black", "foreground"   : "white"},
             "wave"      : {"background": "black",
-                           "signal" : "#00ff00",
-                           "value"  : "white"  ,
-                           "group"  : None     ,
-                           "text"   : None     },
+                           "signal"    : "#00ff00",
+                           "value"     : "white"  ,
+                           "group"     : None     ,
+                           "text"      : None     },
         },
         "signal"             : {
             "struct_as_group"  : True ,
@@ -680,16 +684,19 @@ class View_Model:
             "unique"           : False,
         },
     }
-    INHERITABLE_OPTION = {"color" : {"name": True, "value": True, "wave": True},
-                          "shape" : True,
-                          "signal": True,
+    INHERITABLE_OPTION = {"color"       : {"name": True, "value": True, "wave": True},
+                          "shape"       : True,
+                          "signal"      : True
+                         }
+    VIEW_LIST_OPTION   = {"color"       : {"name": True, "value": True, "wave": True},
+                          "shape"       : True,
+                          "signal"      : True,
                           "display_rows": True,
                          }
-    
     def __init__(self, database, option=None):
         self.database       = database
         self.option         = View_Option(self.DEFAULT_OPTION).merge(option)
-        self.child_option   = self.option.select(View_Model.INHERITABLE_OPTION)
+        self.view_option    = self.option.select(View_Model.VIEW_LIST_OPTION)
         self.database.build_tree()
         self.start_time     = self.parse_time(self.option["start_time"  ])
         self.end_time       = self.parse_time(self.option["end_time"    ])
@@ -732,7 +739,7 @@ class View_Model:
         raise ValueError(f"Invalid time format: {text}")
 
     def add_view_list(self, name, option=None):
-        new_option  = self.child_option.merge(option)
+        new_option  = self.view_option.merge(option)
         view_list   = self.View_List(self, name, new_option)
         self.view_list_list.append(view_list)
         return view_list
