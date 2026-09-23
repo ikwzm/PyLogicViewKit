@@ -96,6 +96,12 @@ class View_Model:
             self.register_database()
             return self.model.database.get(self.handle, start_time, end_time)
 
+        def get_reversed_wave(self, start_time, end_time):
+            if self.model.closed is True:
+                raise RuntimeError("View_Model is closed")
+            self.register_database()
+            return self.model.database.reversed_get(self.handle, start_time, end_time)
+
         def format_value(self, value):
             return self.value_formatter.format_value(value)
             
@@ -126,6 +132,9 @@ class View_Model:
 
         def get_wave(self, start_time, end_time):
             return self.signal.get_wave(start_time, end_time)
+
+        def get_reversed_wave(self, start_time, end_time):
+            return self.signal.get_reversed_wave(start_time, end_time)
 
         def format_value(self, value):
             return self.value_formatter.format_value(value)
@@ -197,6 +206,11 @@ class View_Model:
                 raise RuntimeError("View_Model is closed")
             return self.signal.get_wave(start_time, end_time)
 
+        def get_reversed_wave(self, start_time, end_time):
+            if self.model.closed is True:
+                raise RuntimeError("View_Model is closed")
+            return self.signal.get_reversed_wave(start_time, end_time)
+
         def is_same_wave(self, clock):
             if not isinstance(clock, self.model.View_Signal_Clock):
                 return False
@@ -216,17 +230,23 @@ class View_Model:
             self.offset_time = self.view_list.model.start_time + offset_time
             self.is_logic    = True
 
+        def get_next_edge_time(self, time):
+            return (self.offset_time +
+                    ((time - self.offset_time + self.cycle_time - 1) // self.cycle_time)
+                     * self.cycle_time)
+            
+        def get_prev_edge_time(self, time):
+            return (self.offset_time +
+                    ((time - self.offset_time                      ) // self.cycle_time)
+                     * self.cycle_time)
+            
         def get_edges(self, start_time, end_time):
             if self.model.closed is True:
                 raise RuntimeError("View_Model is closed")
-            first_time = (self.offset_time +
-                          ((start_time - self.offset_time                      ) // self.cycle_time)
-                          * self.cycle_time)
-            last_time  = (self.offset_time +
-                          ((end_time   - self.offset_time + self.cycle_time - 1) // self.cycle_time)
-                           * self.cycle_time)
+            first_time = self.get_prev_edge_time(start_time)
+            last_time  = self.get_next_edge_time(end_time)
             for time in range(first_time, last_time, self.cycle_time):
-                    yield time
+                yield time
 
         def get_wave(self, start_time, end_time):
             if self.model.closed is True:
@@ -241,6 +261,28 @@ class View_Model:
             for time in self.get_edges(start_time, end_time):
                 yield (time                  , first_half_level )
                 yield (time + half_cycle_time, second_half_level)
+
+        def get_reversed_edges(self, start_time, end_time):
+            if self.model.closed is True:
+                raise RuntimeError("View_Model is closed")
+            first_time = self.get_prev_edge_time(end_time)
+            last_time  = self.get_next_edge_time(start_time)
+            for time in range(first_time, last_time, -self.cycle_time):
+                yield time
+
+        def get_reversed_wave(self, start_time, end_time):
+            if self.model.closed is True:
+                raise RuntimeError("View_Model is closed")
+            half_cycle_time = self.cycle_time // 2
+            if self.rising_edge:
+                first_half_level  = "1"
+                second_half_level = "0"
+            else:
+                first_half_level  = "0"
+                second_half_level = "1"
+            for time in self.get_reversed_edges(start_time, end_time):
+                yield (time                  , first_half_level )
+                yield (time - half_cycle_time, second_half_level)
 
         def is_same_wave(self, clock):
             if not isinstance(clock, self.model.View_Virtual_Clock):
