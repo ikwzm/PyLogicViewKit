@@ -525,21 +525,45 @@ class Virtual_Module:
             self.closed = True
             self.clear()
 
-        def get_wave(self, start_time, end_time):
-            if not self.time_list:
-                return iter(())
+        def _get_range(self, start_time, end_time):
             # lo_pos  : start_time 以下の最後の変化位置
             lo_pos = bisect_right(self.time_list, start_time)
             if lo_pos > 0:
                 lo_pos = lo_pos -1
             else:
                 lo_pos = 0
-            # hi_pos : end_time より大きい最初の位置
-            hi_pos = bisect_right(self.time_list, end_time  ) 
-            # start_time 〜 end_time の変化を示すイタレータを返す
+            # hi_pos : end_time より大きい最初の変化位置
+            hi_pos = bisect_right(self.time_list, end_time  )
+            return lo_pos, hi_pos
+
+        def get_wave(self, start_time, end_time):
+            # start_time 〜 end_time の時間と値の変化を示すイタレータを返す
+            if not self.time_list:
+                return iter(())
+            lo_pos, hi_pos = self._get_range(start_time, end_time)
+            # lo_pos(start_time 以下の最後の変化位置) 〜
+            # hi_pos(end_time より大きい最初の変化位置) までの
+            # 時間と値の組をイタレーターとして返す
+            # range() では stop で指定されたインデックスは含まないため、
+            # hi_pos で指定された時間と値は含まれない
             return (
                 (self.time_list[i], self.value_list[i])
                 for i in range(lo_pos, hi_pos)
+            )
+
+        def get_reversed_wave(self, start_time, end_time):
+            # end_time 〜 start_time の時間と値の変化を示すイタレータを返す
+            if not self.time_list:
+                return iter(())
+            lo_pos, hi_pos = self._get_range(start_time, end_time)
+            # hi_pos-1(end_time 以下の最後の変化位置)  〜
+            # lo_pos(start_time 以下の最後の変化位置) までの
+            # 時間と値の組をイタレーターとして返す
+            # range() では stop で指定されたインデックスは含まないため、
+            # lo_pos の時間と値を含めるために stop には lo_pos-1 をセットしている
+            return (
+                (self.time_list[i], self.value_list[i])
+                for i in range(hi_pos-1, lo_pos-1, -1)
             )
 
     class Process:
