@@ -21,7 +21,7 @@ class FST_View_Model(View_Model):
 class FST_Wave_Viewer:
 
     APPLICATION_INFO = {
-        "Version"           : "0.8.4",
+        "Version"           : "0.8.5",
         "Author"            : "Ichiro Kawazome",
         "Author_Email"      : "ichiro_k@ca2-so-net.ne.jp",
         "License"           : "BSD 2-Clause",
