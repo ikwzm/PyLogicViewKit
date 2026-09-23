@@ -516,6 +516,14 @@ class WaveformSignals(QWidget):
             x = max(0, min(self.width(), x))
             ratio = x / self.width()
             return int(start_time + ratio * (end_time - start_time))
+
+        def y_to_row(self, y):
+            height       = self.height()
+            row_height   = self.parent.signal_row_height
+            first_row    = self.row_scroll_value
+            y = max(0, min(height, y))
+            row = first_row + (y // row_height)
+            return row
         
         def paintEvent(self, event):
             painter      = QPainter(self)
@@ -979,6 +987,7 @@ class WaveformArea(QWidget):
         " マウスの左右移動でカーソル(縦線)を左右に移動"
         " マウスの上下スクロールで表示する信号をスクロール"
         " マウスの左クリックで current_time を指定"
+        " マウスの左クリックで parent.waveform_list の該当する信号を選択"
         " マウスの右クリックでメニューポップアップ(表示している時間範囲を変更)"
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -1050,7 +1059,7 @@ class WaveformArea(QWidget):
 
         def mousePressEvent(self, event):
             if event.button() == Qt.LeftButton:
-                self.change_current_time_event(event)
+                self.change_current_time_and_select_row_event(event)
                 event.accept()
                 return
             if event.button() == Qt.RightButton:
@@ -1081,7 +1090,7 @@ class WaveformArea(QWidget):
                     return waveform
             return None
 
-        def change_current_time_event(self, event):
+        def change_current_time_and_select_row_event(self, event):
             pos = event.position().toPoint()
             waveform = self.get_waveform_at(event.position())
             if waveform is None:
@@ -1091,6 +1100,8 @@ class WaveformArea(QWidget):
             waveform_pos    = waveform_column.mapFromGlobal(global_pos)
             current_time    = waveform_column.x_to_time(waveform_pos.x())
             self.time_controller.change_current_time(current_time)
+            selected_row    = waveform_column.y_to_row(waveform_pos.y())
+            waveform.update_selected_row(selected_row)
 
         def show_menu_event(self, event):
             pos = event.position().toPoint()
