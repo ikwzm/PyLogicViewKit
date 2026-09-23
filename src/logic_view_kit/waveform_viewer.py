@@ -165,6 +165,47 @@ class WaveformSignals(QWidget):
         value     = max(scrollbar.minimum(), min(scrollbar.maximum(), value))
         scrollbar.setValue(value)
 
+    def row_to_signal(self, row):
+        item = self.view_list.row_to_item(row)
+        if   self.view_list.item_is_signal(item):
+            signal = item
+        elif self.view_list.item_is_group(item):
+            signal = item.display_signal
+        else:
+            signal = None
+        return signal
+        
+    def get_signal_value(self, signal, time):
+        wave = signal.get_wave(time, time)
+        try:
+            return next(wave)[1]
+        except StopIteration:
+            return None
+
+    def get_next_edge_time(self, curr_time):
+        signal = self.row_to_signal(self.selected_row)
+        if signal is None:
+            return None
+        curr_value = self.get_signal_value(signal, curr_time)
+        end_time   = self.time_controller.total_end_time
+        for next_time, next_value in signal.get_wave(curr_time, end_time):
+            if next_time > curr_time and next_value != curr_value:
+                return next_time
+        return end_time
+
+    def get_prev_edge_time(self, curr_time):
+        signal = self.row_to_signal(self.selected_row)
+        if signal is None:
+            return None
+        curr_value = self.get_signal_value(signal, curr_time)
+        start_time = self.time_controller.total_start_time
+        prev_time  = curr_time
+        for time, prev_value in signal.get_reversed_wave(start_time, curr_time):
+            if prev_time < curr_time and prev_value != curr_value:
+                return prev_time
+            prev_time = time
+        return start_time
+    
     class SignalNameColumn(QTableView):
         "View_List クラスで指定されている各信号の名称を表示するクラス"
         
@@ -1012,6 +1053,8 @@ class WaveformArea(QWidget):
             self.zoom_in_action     = QAction("Zoom to 200% at Cursor" , self.menu)
             self.zoom_out_action    = QAction("Zoom to 50%  at Cursor" , self.menu)
             self.zoom_all_action    = QAction("Zoom All"               , self.menu)
+            self.goto_next_action   = QAction("Go to Next Edge"        , self.menu)
+            self.goto_prev_action   = QAction("Go to Prev Edge"        , self.menu)
             self.menu.addAction(self.center_action)
             self.menu.addAction(self.goto_marker_action)
             self.menu.addSeparator()
@@ -1019,6 +1062,9 @@ class WaveformArea(QWidget):
             self.menu.addAction(self.zoom_in_action)
             self.menu.addAction(self.zoom_out_action)
             self.menu.addAction(self.zoom_all_action)
+            self.menu.addSeparator()
+            self.menu.addAction(self.goto_next_action)
+            self.menu.addAction(self.goto_prev_action)
 
         def set_time_range(self, start_time, end_time):
             if start_time == self.start_time and end_time == self.end_time:
@@ -1042,6 +1088,13 @@ class WaveformArea(QWidget):
             if self.end_time == self.start_time:
                 return 0
             return int((time - self.start_time) * self.width() / (self.end_time - self.start_time))
+
+        def x_to_time(self, x):
+            if self.width() <= 0:
+                return self.start_time
+            x = max(0, min(self.width(), x))
+            ratio = x / self.width()
+            return int(self.start_time + ratio * (self.end_time - self.start_time))
 
         def paintEvent(self, event):
             if self.cursor_x is None:
@@ -1116,7 +1169,11 @@ class WaveformArea(QWidget):
             if   action == self.center_action:
                 self.goto_center(cursor_time)
             elif action == self.goto_marker_action:
-                self.goto_marker(cursor_time)
+                self.goto_marker(pos, cursor_time)
+            elif action == self.goto_next_action:
+                self.goto_next_edge(pos, cursor_time, waveform)
+            elif action == self.goto_prev_action:
+                self.goto_prev_edge(pos, cursor_time, waveform)
             elif action == self.zoom_marker_action:
                 self.zoom_marker(cursor_time)
             elif action == self.zoom_in_action:
@@ -1129,10 +1186,22 @@ class WaveformArea(QWidget):
         def goto_center(self, cursor_time):
             self.center_on_time(cursor_time)
 
-        def goto_marker(self, cursor_time):
+        def goto_marker(self, pos, cursor_time):
             if self.marker_time is None:
                 return
-            self.center_on_time(self.marker_time)
+            self.change_time_range_at_cursor(pos, self.marker_time)
+
+        def goto_next_edge(self, pos, cursor_time, waveform):
+            next_time = waveform.get_next_edge_time(cursor_time)
+            if next_time is None:
+                return
+            self.change_time_range_at_cursor(pos, next_time)
+
+        def goto_prev_edge(self, pos, cursor_time, waveform):
+            prev_time = waveform.get_prev_edge_time(cursor_time)
+            if prev_time is None:
+                return
+            self.change_time_range_at_cursor(pos, prev_time)
 
         def zoom_marker(self, cursor_time):
             if self.marker_time is None:
@@ -1170,7 +1239,16 @@ class WaveformArea(QWidget):
             self.time_controller.change_time_range(new_start_time, new_end_time)
             self.set_cursor_x(self.time_to_x(center_time))
 
-
+        def change_time_range_at_cursor(self, pos, time):
+            cursor_time = self.x_to_time(pos.x())
+            offset_time = time - cursor_time
+            start_time  = self.start_time + offset_time
+            end_time    = self.end_time   + offset_time
+            if start_time < 0:
+                end_time -= start_time
+                start_time = 0
+            self.time_controller.change_time_range(start_time, end_time)
+                
 class HeaderArea(QWidget):
     "アプリケーションウィンドウのヘッダ部"
     " このエリアは次の３つのエリアを横に並べている"
