@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylogicviewkit"
-version = "0.8.5"
+version = "0.8.6"
 description = "A programmable logic waveform viewer toolkit for Python."
 readme = "Readme.md"
 requires-python = ">=3.10"
@@ -12,6 +12,11 @@ dependencies = [
     "PySide6>=6.0",
     "libfst>=0.1.0",
 ]
+
+[project.scripts]
+fst-wave-viewer  = "logic_view_kit.fst_wave_viewer:main"
+dump-fst-signals = "logic_view_kit.dump_fst_signals:main"
+dump-fst-hier    = "logic_view_kit.dump_fst_hier:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

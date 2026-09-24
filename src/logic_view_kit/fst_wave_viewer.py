@@ -3,6 +3,7 @@
 # Copyright (c) 2026 ikwzm
 
 import sys
+import os
 import runpy
 import argparse
 
@@ -21,7 +22,7 @@ class FST_View_Model(View_Model):
 class FST_Wave_Viewer:
 
     APPLICATION_INFO = {
-        "Version"           : "0.8.5",
+        "Version"           : "0.8.6",
         "Author"            : "Ichiro Kawazome",
         "Author_Email"      : "ichiro_k@ca2-so-net.ne.jp",
         "License"           : "BSD 2-Clause",
@@ -41,9 +42,20 @@ class FST_Wave_Viewer:
             "View_Model"         : FST_View_Model,
             "file_name"          : file_name ,
         }
-        namespace  = runpy.run_path(view_model_file, init_globals=namespace)
-        view_model = namespace["view_model"]
+        view_model_dir  = os.path.dirname(os.path.abspath(view_model_file))
+        current_dir     = os.getcwd()
+        added_path_list = []
+        for path in [current_dir, view_model_dir]:
+            if path not in sys.path:
+                sys.path.insert(0, path)
+                added_path_list.append(path)
+        try: 
+            namespace  = runpy.run_path(view_model_file, init_globals=namespace)
+        finally:
+            for path in added_path_list:
+                sys.path.remove(path)
 
+        view_model = namespace["view_model"]
         if view_model is None:
             raise RuntimeError(f"{view_model_file} does not define 'view_model'")
         return view_model
@@ -72,6 +84,9 @@ class FST_Wave_Viewer:
 
         return self.app.exec()
 
-if __name__ == "__main__":
+def main():
     fst_wave_viewer = FST_Wave_Viewer()
     sys.exit(fst_wave_viewer.main())
+
+if __name__ == "__main__":
+    main()

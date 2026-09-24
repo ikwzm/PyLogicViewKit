@@ -653,6 +653,46 @@ class View_Model:
                 return None
             return self.view_item_list[row]
 
+        def item_to_signal(self, item):
+            if item is None:
+                return None
+            if self.item_is_signal(item):
+                return item
+            if self.item_is_clock(item):
+                return item
+            if self.item_is_group(item):
+                return item.display_signal
+            return None
+
+        def get_signal_value(self, signal, time):
+            if signal is None:
+                return None
+            wave = signal.get_wave(time, time)
+            try:
+                return next(wave)[1]
+            except StopIteration:
+                return None
+
+        def get_signal_next_edge_time(self, signal, curr_time, end_time):
+            if signal is None:
+                return None
+            curr_value = self.get_signal_value(signal, curr_time)
+            for next_time, next_value in signal.get_wave(curr_time, end_time):
+                if next_time > curr_time and next_value != curr_value:
+                    return next_time
+            return end_time
+
+        def get_signal_prev_edge_time(self, signal, curr_time, start_time):
+            if signal is None:
+                return None
+            curr_value = self.get_signal_value(signal, curr_time)
+            prev_time  = curr_time
+            for time, prev_value in signal.get_reversed_wave(start_time, curr_time):
+                if prev_time < curr_time and prev_value != curr_value:
+                    return prev_time
+                prev_time = time
+            return start_time
+        
         def item_to_row(self, item):
             return self.item_row_map.get(id(item))
 

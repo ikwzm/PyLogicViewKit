@@ -2,9 +2,14 @@ from axi4_template import AXI4_Read_Template
 from axi4_template import AXI4_Write_Template
 from axi4_template import AXI4_Stream_Template
 
-default_color = {"name":  {"background": "blue", "foreground": "white"},
-                 "value": {"background": "blue", "foreground": "white"}}
-view_model   = View_Model('axi4_m2s_tb_32_32_256_sync.fst', {"display_rows": 50, "color": default_color})
+default_color  = {"name":  {"background": "blue", "foreground": "white"},
+                  "value": {"background": "blue", "foreground": "white"}
+                 }
+default_option = {"color"        : default_color,
+                  "display_rows" : 50
+                 }
+
+view_model  = View_Model('axi4_m2s_tb_32_32_256_sync.fst', default_option)
 view_model.add_signal_clock("*::tb::i_clk", {"display_wave": True})
 
 c_axi   = view_model.add_group("c_axi")

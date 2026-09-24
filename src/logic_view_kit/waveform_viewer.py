@@ -165,46 +165,20 @@ class WaveformSignals(QWidget):
         value     = max(scrollbar.minimum(), min(scrollbar.maximum(), value))
         scrollbar.setValue(value)
 
+    def row_to_item(self, row):
+        return self.view_list.row_to_item(row)
+
+    def item_to_signal(self, item):
+        return self.view_list.item_to_signal(item)
+
     def row_to_signal(self, row):
-        item = self.view_list.row_to_item(row)
-        if   self.view_list.item_is_signal(item):
-            signal = item
-        elif self.view_list.item_is_group(item):
-            signal = item.display_signal
-        else:
-            signal = None
-        return signal
-        
-    def get_signal_value(self, signal, time):
-        wave = signal.get_wave(time, time)
-        try:
-            return next(wave)[1]
-        except StopIteration:
-            return None
+        return self.view_list.item_to_signal(self.view_list.row_to_item(row))
 
-    def get_next_edge_time(self, curr_time):
-        signal = self.row_to_signal(self.selected_row)
-        if signal is None:
-            return None
-        curr_value = self.get_signal_value(signal, curr_time)
-        end_time   = self.time_controller.total_end_time
-        for next_time, next_value in signal.get_wave(curr_time, end_time):
-            if next_time > curr_time and next_value != curr_value:
-                return next_time
-        return end_time
+    def get_signal_next_edge_time(self, signal, curr_time, end_time):
+        return self.view_list.get_signal_next_edge_time(signal, curr_time, end_time)
 
-    def get_prev_edge_time(self, curr_time):
-        signal = self.row_to_signal(self.selected_row)
-        if signal is None:
-            return None
-        curr_value = self.get_signal_value(signal, curr_time)
-        start_time = self.time_controller.total_start_time
-        prev_time  = curr_time
-        for time, prev_value in signal.get_reversed_wave(start_time, curr_time):
-            if prev_time < curr_time and prev_value != curr_value:
-                return prev_time
-            prev_time = time
-        return start_time
+    def get_signal_prev_edge_time(self, signal, curr_time, start_time):
+        return self.view_list.get_signal_prev_edge_time(signal, curr_time, start_time)
     
     class SignalNameColumn(QTableView):
         "View_List クラスで指定されている各信号の名称を表示するクラス"
@@ -446,14 +420,12 @@ class WaveformSignals(QWidget):
 
                 if role == Qt.DisplayRole:
                     if index.column() == self.VALUE_COLUMN:
-                        if   self.view_list.item_is_signal(item):
-                            signal = item
-                        elif self.view_list.item_is_group(item):
-                            signal = item.display_signal
-                        else:
-                            signal = None
-                        if signal is not None:
-                            return self._get_value(signal)
+                        if self.view_list.item_is_clock(item):
+                            return ""
+                        signal = self.view_list.item_to_signal(item)
+                        value  = self.view_list.get_signal_value(signal, self.current_time)
+                        if value is not None:
+                            return signal.format_value(value)
                         else:
                             return ""
 
@@ -479,13 +451,6 @@ class WaveformSignals(QWidget):
                 if section == self.VALUE_COLUMN:
                     return "Value"
                 return None
-
-            def _get_value(self, signal):
-                wave = signal.get_wave(self.current_time, self.current_time)
-                try:
-                    return signal.format_value(next(wave)[1])
-                except StopIteration:
-                    return ""
 
             def refresh(self):
                 self.beginResetModel()
@@ -748,19 +713,17 @@ class WaveformSignals(QWidget):
                 
             def draw_foreground():
                 for i in range(visible_rows):
-                    row   = first_row + i
+                    row    = first_row + i
                     if row >= row_count:
                         break
-                    y     = i * row_height
-                    item  = self.view_list.row_to_item(row)
+                    y      = i * row_height
+                    item   = self.view_list.row_to_item(row)
+                    signal = self.view_list.item_to_signal(item)
+                    if signal is not None:
+                        draw_signal(signal, y, (row == selected_row))
+                        continue
                     if self.view_list.item_is_group(item):
-                        draw_group( item, y, (row == selected_row))
-                        continue
-                    if self.view_list.item_is_signal(item):
-                        draw_signal(item, y, (row == selected_row))
-                        continue
-                    if self.view_list.item_is_clock(item):
-                        draw_signal(item, y, (row == selected_row))
+                        draw_group(   item, y, (row == selected_row))
                         continue
 
             def draw_simple_grid(tick_count):
@@ -1192,13 +1155,17 @@ class WaveformArea(QWidget):
             self.change_time_range_at_cursor(pos, self.marker_time)
 
         def goto_next_edge(self, pos, cursor_time, waveform):
-            next_time = waveform.get_next_edge_time(cursor_time)
+            signal     = waveform.row_to_signal(waveform.selected_row)
+            end_time   = self.time_controller.total_end_time
+            next_time  = waveform.get_signal_next_edge_time(signal, cursor_time, end_time)
             if next_time is None:
                 return
             self.change_time_range_at_cursor(pos, next_time)
 
         def goto_prev_edge(self, pos, cursor_time, waveform):
-            prev_time = waveform.get_prev_edge_time(cursor_time)
+            signal     = waveform.row_to_signal(waveform.selected_row)
+            start_time = self.time_controller.total_start_time
+            prev_time  = waveform.get_signal_prev_edge_time(signal, cursor_time, start_time)
             if prev_time is None:
                 return
             self.change_time_range_at_cursor(pos, prev_time)
