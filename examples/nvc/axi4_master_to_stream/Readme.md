@@ -14,6 +14,12 @@ Run the waveform viewer with the example view model and FST waveform file:
 shell$ python3 -m logic_view_kit.fst_wave_viewer -m axi4_m2s_tb_32_32_256_sync.py
 ```
 
+or
+
+```console
+shell$ fst-wave-viewer -m axi4_m2s_tb_32_32_256_sync.py
+```
+
 The following screenshot shows the AXI4 Master to Stream example displayed with PyLogicViewKit.
 
 ![AXI4 Master to Stream Example](axi4_m2s_tb_32_32_256_sync.png)
